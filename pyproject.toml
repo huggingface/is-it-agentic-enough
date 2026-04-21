@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "is-transformers-agentic-enough"
+version = "0.1.0"
+description = "Harness for measuring how agents use the transformers CLI across commits."
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Lysandre Debut", email = "hi@lysand.re" }]
+dependencies = [
+    "pyyaml>=6",
+    "rich>=13",
+]
+
+[project.scripts]
+isth = "isth.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/isth"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/isth/data" = "isth/data"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

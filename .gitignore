@@ -1,0 +1,19 @@
+.env/
+.venv/
+.idea/
+
+# Runtime state
+configs/
+workspaces/
+results/
+
+# Build / Python
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.py[cod]
+
+# Editor / OS
+.DS_Store
+*.swp

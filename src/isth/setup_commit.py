@@ -1,0 +1,128 @@
+"""Per-commit cache management.
+
+For a given ref (sha, branch, tag) creates:
+    configs/<short-sha>/worktree/   git worktree of transformers @ sha
+    configs/<short-sha>/.venv/      uv venv with ``pip install -e worktree``
+    configs/<short-sha>/plugin/     Claude Code plugin dir (if skill derivable)
+    configs/<short-sha>/.ready      sentinel
+"""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+from pathlib import Path
+
+from .build_skill import build as build_skill_plugin
+from .log import log
+from .paths import configs_dir, transformers_src
+
+
+PINNED_DEPS = [
+    "torch",
+    "torchaudio",
+    "pillow",
+    "librosa",
+    "scipy",
+    "accelerate",
+    "huggingface_hub",
+]
+
+
+def resolve_sha(ref: str) -> str:
+    out = subprocess.check_output(
+        ["git", "-C", str(transformers_src()), "rev-parse", ref],
+        text=True,
+    ).strip()
+    # `git rev-parse` on a range (A..B) returns multiple lines — that's not a single
+    # commit. Reject it with a clear message rather than corrupting callers.
+    if "\n" in out:
+        raise SystemExit(
+            f"`{ref}` did not resolve to a single commit (got:\n{out}\n). "
+            "If you want a range, use `isth compare` or `isth diff`."
+        )
+    return out
+
+
+def _ensure_worktree(sha: str, dest: Path) -> None:
+    if dest.exists():
+        return
+    log(f"git worktree add {dest.name} @ {sha[:10]}")
+    subprocess.check_call(
+        ["git", "-C", str(transformers_src()), "worktree", "add", "--detach", str(dest), sha],
+    )
+
+
+def _ensure_venv(cfg_dir: Path) -> Path:
+    venv = cfg_dir / ".venv"
+    if not (venv / "bin" / "python").exists():
+        log(f"uv venv {venv}")
+        subprocess.check_call(["uv", "venv", "--python", "3.13", str(venv)])
+    return venv / "bin" / "python"
+
+
+def _ensure_install(py: Path, worktree: Path) -> None:
+    try:
+        out = subprocess.check_output(
+            [str(py), "-c", "import transformers, pathlib; print(pathlib.Path(transformers.__file__).parent)"],
+            text=True,
+        ).strip()
+        if out.startswith(str(worktree)):
+            return
+    except subprocess.CalledProcessError:
+        pass
+
+    log(f"pip install -e {worktree.name}  (may take a minute)")
+    subprocess.check_call(["uv", "pip", "install", "--python", str(py), "-e", str(worktree)])
+    log(f"pip install deps {PINNED_DEPS}")
+    subprocess.check_call(["uv", "pip", "install", "--python", str(py), *PINNED_DEPS])
+
+
+def setup(ref: str) -> dict:
+    sha = resolve_sha(ref)
+    short = sha[:10]
+    cfg_dir = configs_dir() / short
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+
+    worktree = cfg_dir / "worktree"
+    _ensure_worktree(sha, worktree)
+
+    py = _ensure_venv(cfg_dir)
+    _ensure_install(py, worktree)
+
+    plugin_dir = cfg_dir / "plugin"
+    already_built = (plugin_dir / "skills" / "transformers" / "SKILL.md").exists()
+    if already_built:
+        skill_available = True
+    else:
+        log("building SKILL.md from derived manifest")
+        skill_available = build_skill_plugin(py, plugin_dir)
+        if not skill_available:
+            log("  (skill-derivation unavailable at this commit; skipping)")
+
+    (cfg_dir / ".ready").write_text(f"{sha}\n")
+    info = {
+        "sha": sha,
+        "short": short,
+        "worktree": str(worktree),
+        "venv_python": str(py),
+        "plugin_dir": str(plugin_dir),
+        "skill_available": skill_available,
+    }
+    log(f"✓ setup {short}   skill={'yes' if skill_available else 'no'}")
+    return info
+
+
+def cleanup(ref: str) -> None:
+    sha = resolve_sha(ref)
+    short = sha[:10]
+    cfg_dir = configs_dir() / short
+    if not cfg_dir.exists():
+        return
+    worktree = cfg_dir / "worktree"
+    if worktree.exists():
+        subprocess.check_call(
+            ["git", "-C", str(transformers_src()), "worktree", "remove", "--force", str(worktree)],
+        )
+    shutil.rmtree(cfg_dir, ignore_errors=True)
+    print(f"[cleanup] removed {short}")

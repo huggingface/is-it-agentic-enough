@@ -1,0 +1,203 @@
+# `isth` CLI reference
+
+Full reference for every `isth` subcommand. For a high-level overview of
+what the harness measures and the three discovery conditions
+(`bare` / `clone` / `skill`) see [README.md](./README.md); for safety
+properties see [SECURITY.md](./SECURITY.md).
+
+`isth` exposes a handful of subcommands grouped by purpose. All of them
+accept `--model <name>` to namespace results under `results/<name>/` so
+runs from different Claude models don't collide; results without
+`--model` land in the default `results/` dir.
+
+## Common flags
+
+These appear on most run-producing subcommands:
+
+- `--model <name>` — passed through to `claude --model`. Results are
+  written under `results/<name>/`. Without it, the default Claude model
+  is used and results land in `results/`.
+- `-v` / `--verbose` — emit per-tool-call event lines from each run
+  (default is run-level `▶` / `■` summaries only).
+- `--force-rerun` — re-execute cells whose `.jsonl` already exists
+  (default skips them, since each run costs API tokens + wall time).
+- `--max-tool-calls N` — kill a run after this many tool calls; the run's
+  `meta.json` records `status=budget_tool_calls`. Default 50. Protects
+  against pathological agents that loop forever.
+- `--no-live` — disable the rich dashboard (auto-disabled when stderr
+  isn't a TTY). Use in CI logs.
+
+## Setup / discovery
+
+### `isth tasks`
+
+List the 8 task ids and their categories (`atomic` / `compositional`).
+
+```bash
+isth tasks
+```
+
+### `isth setup <ref> [--remove]`
+
+Build (or remove) the per-commit cache for one ref. Idempotent: rerunning
+on an already-built cache is a no-op. Each cache contains:
+
+- `configs/<short-sha>/worktree/` — git worktree of `transformers` at
+  the resolved SHA,
+- `configs/<short-sha>/.venv/` — a `uv venv` with `pip install -e
+  worktree` and the pinned runtime deps (`torch`, `librosa`, ...),
+- `configs/<short-sha>/plugin/` — a Claude Code plugin dir holding a
+  `SKILL.md` rendered from the commit's derived skill manifest (skipped
+  silently for commits that predate the skill-derivation module),
+- `configs/<short-sha>/.ready` — a sentinel.
+
+```bash
+isth setup HEAD                # build
+isth setup 9914a3641f --remove # tear down (~2 GB freed)
+```
+
+Called implicitly by `isth run` / `isth suite` / `isth diff` if needed,
+but you can prebuild caches in parallel before kicking off a long suite.
+
+## Running
+
+### `isth run <ref> <task_id> <run_index> [variants...]`
+
+Execute exactly one run, or one run per variant. Cheap to use for ad-hoc
+probing of a single (commit, task) cell.
+
+```bash
+isth run HEAD classify-sentiment 1                # all 3 variants
+isth run HEAD classify-sentiment 1 bare           # just bare
+isth run HEAD classify-sentiment 1 bare clone     # two variants
+```
+
+Accepts the common flags above. Skips a cell if its `.jsonl` already
+exists unless `--force-rerun` is set.
+
+### `isth suite <ref> [--runs N] [--tasks ...] [--variants ...]`
+
+Run the full task suite for **one** commit (3 variants × 8 tasks × N
+runs by default ≈ 72 runs). Per-task `runs:` overrides in `tasks.yaml`
+stack on top of `--runs`.
+
+```bash
+isth suite HEAD                                   # 72 runs
+isth suite HEAD --variants skill --tasks summarize-text caption-image
+isth suite HEAD --runs 5                          # tighter medians, more cost
+```
+
+Progress shows in the rich dashboard: a panel header, a counters line,
+and a table with rows = (task, variant) and one column for the ref.
+Log lines (`[3/72] → ...`) scroll above. With `-v`, every tool call is
+logged.
+
+### `isth diff <spec> [--runs N] [--tasks ...] [--variants ...]`
+
+The **end-to-end** path: takes a ref range (`A..B` or `A..B..C`),
+ensures every commit's cache is built, runs the suite for each, and
+prints the comparison report on stdout when finished. This is what you
+run for an actual before/after measurement — no need to invoke `setup` /
+`suite` / `compare` separately.
+
+```bash
+isth diff 0ea540efff..59e4754341 > progress.md
+isth diff A..B..C --runs 5 --tasks summarize-text caption-image
+```
+
+Iteration order is **task-first**: each task completes on all
+refs × variants × runs before the next task begins. So if you
+ctrl-C halfway, every fully-finished task already has equal sample
+sizes across refs and is comparable.
+
+The rich dashboard lights up with rows = (task, variant) and one
+column per ref; cells fill in as runs finish, color-coded green/red
+row-relative (best/worst across refs) on median time and tool count,
+with `⏻` / `!` flags for aborted / failed runs. While it's running,
+you can introspect any cell from another terminal with `isth explain`
+(see below).
+
+## Inspection
+
+All inspection commands read from `results/<model>/` and require neither
+`claude` nor a venv. They're safe to run **while a diff is in progress**
+— they tolerate in-flight `.jsonl` files (last-line partial writes) and
+missing `.meta.json` sidecars.
+
+### `isth analyze <short-sha> [task_id]`
+
+Per-commit markdown report. With a task id, only that task; without one,
+every task that has results for the given SHA. Useful as a single-commit
+deep dive before/after a `compare`.
+
+```bash
+isth analyze 59e4754341
+isth analyze 59e4754341 caption-image --model sonnet > caption.md
+```
+
+### `isth compare <refs...>`
+
+Side-by-side comparison across two or more refs already on disk.
+Produces the self-describing markdown report (preamble + variant
+definitions + commit metadata + metric glossary + headline + per-variant
+summaries + per-task tables) that the worked example in the README shows.
+
+```bash
+isth compare 0ea540efff 59e4754341 > progress.md
+isth compare 9914a3641f..03836b6ec6..8135eabc1c
+```
+
+Accepts refs as separate tokens or as a `A..B..C` range (same as `diff`).
+Results must already exist; use `isth diff` to build + compare in one
+shot.
+
+### `isth explain <variant> <task> <refs...>`
+
+Focused per-cell timeline for **one** (variant, task) cell across one or
+more refs. The drill-down complement to `compare` — when a cell looks
+weird in the dashboard, this is what you run to find out *why*.
+
+```bash
+isth explain bare summarize-text 0ea540efff..59e4754341 --model sonnet-old
+isth explain skill caption-image 59e4754341
+```
+
+For each ref it prints, per run on disk:
+
+- a one-line header (✓/✗ match, elapsed, exit code, tool-call count, error count),
+- the full tool-call timeline with `❗` markers + first-line snippets on errored calls,
+- the final answer truncated, with a `[contains '...']` / `[missing '...']` flag against the task's expected substring,
+
+followed by a side-by-side metric diff (approach bucket, errors, median
+time, median tools, match rate) when ≥2 refs are given, and the list of
+`.jsonl` trace paths at the bottom for hand-off to an LLM (wrap in
+`BEGIN/END UNTRUSTED TRACE` markers per [SECURITY.md](./SECURITY.md)).
+
+If you forget `--model` and the default `results/` dir is empty, it
+auto-detects the right namespace (or, if multiple namespaces have data,
+lists them so you can pick).
+
+## Workflows
+
+Three typical entry points:
+
+```bash
+# 1. End-to-end: run + compare in one command (most common).
+isth diff 0ea540efff..59e4754341 > progress.md
+
+# 2. Stage by stage, e.g. when you want to inspect intermediate state.
+isth setup 0ea540efff
+isth setup 59e4754341
+isth suite 0ea540efff
+isth suite 59e4754341
+isth compare 0ea540efff 59e4754341 > progress.md
+
+# 3. Add a third commit to an existing comparison without re-running A vs B.
+isth suite 03836b6ec6
+isth compare 0ea540efff 03836b6ec6 59e4754341 > progress.md
+```
+
+`compare` (and the comparison appended by `diff`) produces one table per
+task, columns per SHA, cells showing the approach bucket —
+`CLI-clean=2/3 Python-retry=1/3` etc. Clean CLI-ward flips stand out
+immediately; regressions are equally visible.
