@@ -56,6 +56,8 @@ class CellRun:
     matched_expected: bool | None
     expected: str | None
     errored_calls: int
+    tokens_in: int
+    tokens_out: int
 
 
 def _trunc(s: str, n: int = 100) -> str:
@@ -160,6 +162,8 @@ def _parse_run(jsonl_path: Path, task_id: str, run_index: int) -> CellRun:
         matched_expected=matched,
         expected=expected,
         errored_calls=errored,
+        tokens_in=int((meta.get("tokens") or {}).get("in") or 0),
+        tokens_out=int((meta.get("tokens") or {}).get("out") or 0),
     )
 
 
@@ -218,6 +222,7 @@ def _print_run(console, run: CellRun) -> None:
     head.append(
         f"{run.tool_call_count} tools  errors={run.errored_calls}", style=err_style
     )
+    head.append(f"  tokens in:{run.tokens_in:,} out:{run.tokens_out:,}", style="dim")
     console.print(head)
 
     if not run.steps:
@@ -297,6 +302,8 @@ def _diff_table(refs: list[str], by_ref: dict[str, list[CellRun]]) -> Table:
         n = len(finished)
         med_t = _med([r.elapsed_sec for r in finished if r.elapsed_sec is not None])
         med_tc = _med([float(r.tool_call_count) for r in finished])
+        med_in = _med([float(r.tokens_in) for r in finished])
+        med_out = _med([float(r.tokens_out) for r in finished])
         total_calls = sum(r.tool_call_count for r in finished)
         total_err = sum(r.errored_calls for r in finished)
         match_total = sum(1 for r in finished if r.matched_expected is not None)
@@ -306,6 +313,8 @@ def _diff_table(refs: list[str], by_ref: dict[str, list[CellRun]]) -> Table:
             "errors": f"{total_err}/{total_calls}" if total_calls else "—",
             "median time": f"{med_t:.0f}s" if med_t is not None else "—",
             "median tools": f"{med_tc:.0f}" if med_tc is not None else "—",
+            "median tokens in": f"{med_in:,.0f}" if med_in is not None else "—",
+            "median tokens out": f"{med_out:,.0f}" if med_out is not None else "—",
             "matched": f"{match_ok}/{match_total}" if match_total else "—",
             "runs available": f"{n} finished" + (
                 f" (+{len(runs) - n} in-flight)" if len(runs) > n else ""
@@ -326,6 +335,8 @@ def _diff_table(refs: list[str], by_ref: dict[str, list[CellRun]]) -> Table:
         "errors",
         "median time",
         "median tools",
+        "median tokens in",
+        "median tokens out",
         "matched",
     ):
         va, vb = sa[key], sb[key]

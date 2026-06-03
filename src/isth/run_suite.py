@@ -6,7 +6,7 @@ import json
 
 from .dashboard import Dashboard, stderr_is_tty
 from .log import get_console, log
-from .paths import results_dir
+from .paths import results_dir, results_label
 from .run_task import VARIANTS, load_tasks, run
 from .setup_commit import setup
 
@@ -28,6 +28,9 @@ def run_suite(
     model: str | None = None,
     max_tool_calls: int = 50,
     live: bool = True,
+    runner: str = "claude",
+    provider: str | None = None,
+    keep_sessions: bool = False,
 ) -> None:
     info = setup(ref)
     short = info["short"]
@@ -48,7 +51,7 @@ def run_suite(
     def _runs_for(tid: str) -> int:
         return int(all_tasks[tid].get("runs") or runs)
 
-    rdir = results_dir(model)
+    rdir = results_dir(results_label(runner, provider, model))
     plan: list[tuple[str, str, str, int]] = []
     for tid in selected:
         for variant in resolved_variants:
@@ -56,7 +59,7 @@ def run_suite(
                 plan.append((short, variant, tid, run_idx))
 
     total = len(plan)
-    model_tag = f" [{model}]" if model else ""
+    model_tag = f" [{runner}:{model}]" if model else f" [{runner}]"
     log(
         f"suite {short}{model_tag}: {total} runs  "
         f"({len(selected)} tasks × {len(resolved_variants)} variants, "
@@ -86,7 +89,11 @@ def run_suite(
             log(f"[{i}/{total}] → {variant} {tid} run{run_idx}")
             dash.mark_running(short, variant, tid, run_idx)
             try:
-                run(ref, variant, tid, run_idx, model=model, max_tool_calls=max_tool_calls)
+                run(
+                    ref, variant, tid, run_idx,
+                    model=model, max_tool_calls=max_tool_calls,
+                    runner=runner, provider=provider, keep_sessions=keep_sessions,
+                )
             except Exception as e:  # noqa: BLE001
                 log(f"  ! failed: {e}")
                 dash.mark_failed(short, variant, tid, run_idx, str(e))
