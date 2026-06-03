@@ -24,16 +24,7 @@ from .analyze import (
 )
 from .paths import package_data_path, transformers_src
 from .setup_commit import resolve_sha
-
-
-def _fmt_tokens(n: int) -> str:
-    if n >= 1_000_000:
-        return f"{n / 1_000_000:.1f}M"
-    if n >= 10_000:
-        return f"{n // 1000}k"
-    if n >= 1000:
-        return f"{n / 1000:.1f}k"
-    return str(n)
+from .util import fmt_tokens
 
 
 # --------- preamble sections ---------
@@ -377,8 +368,8 @@ def _fmt_sec(med: float, q1: float, q3: float) -> str:
 
 def _fmt_tok_iqr(med: float, q1: float, q3: float) -> str:
     if q1 == q3:
-        return _fmt_tokens(int(med))
-    return f"{_fmt_tokens(int(med))} (IQR {_fmt_tokens(int(q1))}–{_fmt_tokens(int(q3))})"
+        return fmt_tokens(int(med))
+    return f"{fmt_tokens(int(med))} (IQR {fmt_tokens(int(q1))}–{fmt_tokens(int(q3))})"
 
 
 def _aggregate(
@@ -525,7 +516,7 @@ def _render_summary(title: str, rows: list[tuple[str, dict]], note: str = "") ->
         return "—" if _empty(d) else _fmt_tok_iqr(*d[key])
 
     def _tok_cell(d: dict, key: str) -> str:
-        return "—" if _empty(d) else _fmt_tokens(d[key])
+        return "—" if _empty(d) else fmt_tokens(d[key])
 
     lines.append("| median wall-time per run | " + " | ".join(_sec_cell(d) for _, d in rows) + " |")
     lines.append("| median `new` tokens per run | " + " | ".join(_tok_iqr_cell(d, "new_iqr") for _, d in rows) + " |")
@@ -615,17 +606,17 @@ def _per_variant_summary(
 # --------- top-level ---------
 
 
-def compare(refs: list[str], model: str | None = None) -> str:
+def compare(refs: list[str], ns: str | None = None) -> str:
     shas = expand_refs(refs)
     if len(shas) < 2:
         return "compare needs at least two distinct refs"
-    task_ids = sorted(set().union(*(discover_task_ids(s, model) for s in shas)))
+    task_ids = sorted(set().union(*(discover_task_ids(s, ns) for s in shas)))
     if not task_ids:
         return f"No results for any of: {shas}"
 
     header = f"# transformers agent behavior: {' → '.join(shas)}"
-    if model:
-        header += f"  [model: {model}]"
+    if ns:
+        header += f"  [{ns}]"
 
     out = [header, ""]
     out.append(_context_section())
@@ -633,12 +624,12 @@ def compare(refs: list[str], model: str | None = None) -> str:
     out.append(_commit_metadata(shas))
     out.append(_tasks_section())
     out.append(_metric_glossary())
-    out.append(_headline_summary(shas, task_ids, model))
-    out.append(_per_variant_summary(shas, task_ids, model))
+    out.append(_headline_summary(shas, task_ids, ns))
+    out.append(_per_variant_summary(shas, task_ids, ns))
     out.append("## Per-task results")
     out.append("")
     for tid in task_ids:
-        section = _compare_task(tid, shas, model)
+        section = _compare_task(tid, shas, ns)
         if section:
             out.append(section)
     return "\n".join(out)

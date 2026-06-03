@@ -85,8 +85,6 @@ def run(
     model: str | None = None,
     max_tool_calls: int = 50,
     runner: str = "claude",
-    provider: str | None = None,
-    keep_sessions: bool = False,
 ) -> Path:
     if variant not in VARIANTS:
         raise SystemExit(f"Unknown variant: {variant}")
@@ -109,26 +107,26 @@ def run(
     venv_python = cfg_dir / ".venv" / "bin" / "python"
     ws = _prepare_workspace(short, variant, task_id, run_idx, sha)
 
-    label = results_label(runner, provider, model)
-    rdir = results_dir(label)
-    out_path = rdir / f"{short}__{variant}__{task_id}__run{run_idx}.jsonl"
-    meta_path = rdir / f"{short}__{variant}__{task_id}__run{run_idx}.meta.json"
+    ns = results_label(runner, model)
+    rdir = results_dir(short, ns)
+    out_path = rdir / f"{variant}__{task_id}__run{run_idx}.jsonl"
+    meta_path = rdir / f"{variant}__{task_id}__run{run_idx}.meta.json"
 
-    # Per-run staging dir for the agent's *native* session (for Hub upload).
-    session_dir: Path | None = None
-    if keep_sessions:
-        session_dir = workspaces_dir() / f"{ws.name}__session"
-        if session_dir.exists():
-            shutil.rmtree(session_dir, ignore_errors=True)
-        session_dir.mkdir(parents=True)
+    # Per-run staging dir for the agent's *native* session. Always captured —
+    # sharing traces (Hub agent-traces viewer) is the point of the harness.
+    session_dir = workspaces_dir() / f"{ws.name}__session"
+    if session_dir.exists():
+        shutil.rmtree(session_dir, ignore_errors=True)
+    session_dir.mkdir(parents=True)
 
-    cmd = runner_impl.build_cmd(prompt, ws, cfg_dir, variant, model, provider, session_dir)
+    cmd = runner_impl.build_cmd(prompt, ws, cfg_dir, variant, model, session_dir)
     model_tag = f" [{runner}:{model}]" if model else f" [{runner}]"
     log(f"▶ {short} {variant} {task_id} run{run_idx}{model_tag}   cwd={ws.name}")
 
     totals = {"in": 0, "out": 0, "cache_read": 0, "cache_creation": 0}
     tool_call_count = 0
-    status = "ok"  # "ok" | "budget_tool_calls" | "timeout"
+    status = "ok"  # "ok" | "budget_tool_calls" | "timeout" | "error"
+    result_is_error = False
 
     start = time.time()
     proc = subprocess.Popen(
@@ -164,6 +162,10 @@ def run(
                         status = "budget_tool_calls"
                         log(f"  ⏻ budget exceeded ({tool_call_count} tool calls > {max_tool_calls}); killing run")
                         budget_hit = True
+                elif event.get("type") == "result" and event.get("is_error"):
+                    # The agent terminated in an error state (e.g. invalid model,
+                    # auth failure) — distinct from a clean run that used 0 tools.
+                    result_is_error = True
                 summary = summarize_event(event)
                 if summary:
                     vlog(summary)
@@ -179,16 +181,21 @@ def run(
     stderr_output = proc.stderr.read() if proc.stderr else ""
     elapsed = time.time() - start
 
+    # A nonzero exit or an is_error result means the run didn't actually do its
+    # job — flag it so it isn't reported as a clean zero-tool run. (budget/timeout
+    # kills also exit nonzero, but those statuses are already set above.)
+    if status == "ok" and (result_is_error or proc.returncode not in (0, None)):
+        status = "error"
+
     # Collect the agent's native session file (for Hub agent-traces upload).
     trace_path: Path | None = None
-    if keep_sessions:
-        native = runner_impl.collect_session(session_dir, ws)
-        if native and native.exists():
-            tdir = traces_dir(label)
-            trace_path = tdir / f"{short}__{variant}__{task_id}__run{run_idx}.jsonl"
-            shutil.copyfile(native, trace_path)
-        else:
-            log("  (no native session captured for this run)")
+    native = runner_impl.collect_session(session_dir, ws)
+    if native and native.exists():
+        tdir = traces_dir(short, ns)
+        trace_path = tdir / f"{variant}__{task_id}__run{run_idx}.jsonl"
+        shutil.copyfile(native, trace_path)
+    else:
+        log("  (no native session captured for this run)")
 
     meta_path.write_text(
         json.dumps(
@@ -199,7 +206,6 @@ def run(
                 "task_id": task_id,
                 "run_index": run_idx,
                 "runner": runner,
-                "provider": provider,
                 "model": model,
                 "status": status,
                 "tool_call_count": tool_call_count,

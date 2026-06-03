@@ -32,48 +32,61 @@ def workspaces_dir() -> Path:
     return d
 
 
-def results_dir(model: str | None = None) -> Path:
-    """Results directory, optionally namespaced by model.
+def _safe_component(s: str) -> str:
+    """Make a model id usable as a single path component (``Qwen/Qwen3`` →
+    ``Qwen--Qwen3``) so the layout stays exactly three levels deep."""
+    return s.replace("/", "--")
 
-    - ``results_dir()`` — the default ``$ROOT/results/`` (backwards compatible
-      with runs that didn't specify a model).
-    - ``results_dir("sonnet-shared-on-slack-old")`` — ``$ROOT/results/sonnet-shared-on-slack-old/``. Model-specific
-      runs land in their own subdirectory so default-model runs aren't
-      polluted and cross-model comparison stays cheap.
+
+def harness_id(runner: str | None) -> str:
+    """The ``{harness}`` path component — the coding agent driving the run."""
+    return runner or "claude"
+
+
+def model_id(model: str | None) -> str:
+    """The ``{model_id}`` path component: the model name (``/`` → ``--`` so it
+    stays a single path segment), or ``default`` when no ``--model`` was given.
+    For ``claude`` this is e.g. ``opus``/``haiku``; for ``pi`` (always HF-served)
+    e.g. ``Qwen--Qwen3-Coder-480B-A35B-Instruct``."""
+    return _safe_component(model or "default")
+
+
+def results_label(runner: str | None, model: str | None) -> str:
+    """Per-commit namespace ``<harness>/<model_id>``.
+
+    Results for a single run live at
+    ``results/<commit>/<harness>/<model_id>/<variant>__<task>__runN.jsonl``;
+    this returns the ``<harness>/<model_id>`` part. Callers join it under a
+    commit via :func:`results_dir`.
+    """
+    return f"{harness_id(runner)}/{model_id(model)}"
+
+
+def results_dir(commit: str | None = None, ns: str | None = None) -> Path:
+    """Results directory, laid out as ``results/<commit>/<harness>/<model_id>/``.
+
+    - ``results_dir()`` — the ``$ROOT/results/`` root.
+    - ``results_dir(commit)`` — all runs for one commit.
+    - ``results_dir(commit, ns)`` — one ``<harness>/<model_id>`` namespace
+      (``ns`` from :func:`results_label`) for one commit.
     """
     d = state_root() / "results"
-    if model:
-        d = d / model
+    if commit:
+        d = d / commit
+    if ns:
+        d = d / ns
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def results_label(runner: str | None, provider: str | None, model: str | None) -> str | None:
-    """Namespace key passed to :func:`results_dir`.
-
-    - ``claude`` (the default runner) keeps the historical scheme: ``model`` as
-      the label (so ``results/`` and ``results/<model>/`` are unchanged).
-    - other runners namespace under ``<runner>/<provider>/<model>`` so e.g. a
-      Pi/HF run never collides with a Claude run of a same-named model. The
-      label may contain ``/`` (incl. inside model ids); ``results_dir`` joins it
-      as a sub-path, and run filenames carry no model, so nesting is safe.
-    """
-    if (runner or "claude") == "claude":
-        return model
-    parts = [runner or "claude"]
-    if provider:
-        parts.append(provider)
-    if model:
-        parts.append(model)
-    return "/".join(parts)
-
-
-def traces_dir(label: str | None = None) -> Path:
-    """Directory where native agent session files are collected for Hub upload,
-    namespaced the same way as :func:`results_dir`."""
+def traces_dir(commit: str | None = None, ns: str | None = None) -> Path:
+    """Native-session collection dir, mirroring :func:`results_dir`'s layout
+    under ``traces/`` for Hub upload."""
     d = state_root() / "traces"
-    if label:
-        d = d / label
+    if commit:
+        d = d / commit
+    if ns:
+        d = d / ns
     d.mkdir(parents=True, exist_ok=True)
     return d
 

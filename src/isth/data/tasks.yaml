@@ -13,8 +13,9 @@
 #                   Expected on "after": the agent reads src/transformers/cli/
 #                   agentic/*.py as exemplar code rather than cold-starting.
 #
-# Optional `runs:` per task overrides the CLI-provided default (3). Cheap
-# tasks default to 5 for tighter medians; expensive tasks stick to 3.
+# Optional `runs:` sets this task's default sample count (cheap tasks use 5 for
+# tighter medians; expensive tasks stick to 3). Tasks without `runs:` default to
+# 3. An explicit `--runs N` on the CLI overrides every per-task `runs:`.
 
 tasks:
   - id: classify-sentiment

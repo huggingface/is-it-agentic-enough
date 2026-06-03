@@ -5,32 +5,30 @@ what the harness measures and the three discovery conditions
 (`bare` / `clone` / `skill`) see [README.md](./README.md); for safety
 properties see [SECURITY.md](./SECURITY.md).
 
-`isth` exposes a handful of subcommands grouped by purpose. All of them
-accept `--model <name>` to namespace results under `results/<name>/` so
-runs from different Claude models don't collide; results without
-`--model` land in the default `results/` dir.
+`isth` exposes a handful of subcommands grouped by purpose. Runs are stored
+commit-first as `results/<commit>/<harness>/<model_id>/<variant>__<task>__runN.jsonl`
+(see [Result layout](./README.md#result-layout)), so runs from different
+commits, harnesses, and models never collide. `--model <name>` selects the
+`<model_id>` component (it defaults to `default` for Claude when omitted).
 
 ## Common flags
 
 These appear on most run-producing subcommands:
 
 - `--runner {claude,pi}` — which coding agent drives each run. `claude`
-  (default) shells out to the `claude` CLI; `pi` shells out to the `pi`
-  CLI, which can serve any model via Hugging Face inference providers.
-- `--provider <name>` — model provider for the `pi` runner (default
-  `huggingface`; e.g. `anthropic`, `openai`). Ignored by `claude`.
-- `--model <name>` — the model id. For `claude` it is passed through to
-  `claude --model` and results are written under `results/<name>/`
-  (or `results/` if omitted). For non-claude runners, results are
-  namespaced under `results/<runner>/<provider>/<model>/`. Pass the same
-  `--runner`/`--provider`/`--model` to `analyze`/`compare`/`explain`/
-  `upload` to read those results back.
-  - The `pi` runner uses `HF_TOKEN` only for its *own* model calls (via
-    `--api-key`); the token is stripped from the agent's task environment,
-    matching the Claude runs. Set `HF_TOKEN` before running.
-- `--keep-sessions` — persist each run's *native* agent session file under
-  `traces/<label>/` for later upload to the Hub (see `isth upload`). Off by
-  default (runs stay ephemeral). Recorded as `trace_path` in `meta.json`.
+  (default) shells out to the `claude` CLI (your configured Claude model);
+  `pi` shells out to the `pi` CLI, which serves the `--model` via Hugging
+  Face inference providers.
+- `--model <name>` — the model id. For `--runner claude` it is a Claude
+  alias/id (`opus`, `claude-sonnet-4-6`) passed to `claude --model`. For
+  `--runner pi` it is an HF model id (`Qwen/Qwen3-Coder-480B-A35B-Instruct`).
+  Either way it becomes the `<model_id>` path component (`/` → `--`), or
+  `default` if omitted. Pass the same `--runner`/`--model` to
+  `analyze`/`compare`/`explain`/`upload`/`sync` to read those results back.
+  - The `pi` runner requires `HF_TOKEN` (it always uses the `huggingface`
+    provider) and uses it only for its *own* model calls (via `--api-key`);
+    the token is stripped from the agent's task environment, matching the
+    Claude runs.
 - `-v` / `--verbose` — emit per-tool-call event lines from each run
   (default is run-level `▶` / `■` summaries only).
 - `--force-rerun` — re-execute cells whose `.jsonl` already exists
@@ -91,14 +89,15 @@ exists unless `--force-rerun` is set.
 
 ### `isth suite <ref> [--runs N] [--tasks ...] [--variants ...]`
 
-Run the full task suite for **one** commit (3 variants × 8 tasks × N
-runs by default ≈ 72 runs). Per-task `runs:` overrides in `tasks.yaml`
-stack on top of `--runs`.
+Run the full task suite for **one** commit (3 variants × 8 tasks). The
+number of runs per cell is resolved per task: an explicit `--runs N`
+**overrides every** per-task `runs:` in `tasks.yaml`; without `--runs`,
+each task uses its own `runs:` (cheap tasks default to 5) or 3 if it has none.
 
 ```bash
-isth suite HEAD                                   # 72 runs
+isth suite HEAD                                   # per-task runs: (or 3)
 isth suite HEAD --variants skill --tasks summarize-text caption-image
-isth suite HEAD --runs 5                          # tighter medians, more cost
+isth suite HEAD --runs 5                          # force 5 for ALL tasks
 ```
 
 Progress shows in the rich dashboard: a panel header, a counters line,
@@ -133,8 +132,9 @@ you can introspect any cell from another terminal with `isth explain`
 
 ## Inspection
 
-All inspection commands read from `results/<model>/` and require neither
-`claude` nor a venv. They're safe to run **while a diff is in progress**
+All inspection commands read from `results/<commit>/<harness>/<model_id>/`
+and require neither `claude` nor a venv. They're safe to run **while a diff
+is in progress**
 — they tolerate in-flight `.jsonl` files (last-line partial writes) and
 missing `.meta.json` sidecars.
 
@@ -188,27 +188,28 @@ given, and the list of `.jsonl` trace paths at the bottom for hand-off to
 an LLM (wrap in `BEGIN/END UNTRUSTED TRACE` markers per
 [SECURITY.md](./SECURITY.md)).
 
-If you forget `--model` and the default `results/` dir is empty, it
-auto-detects the right namespace (or, if multiple namespaces have data,
-lists them so you can pick).
+If the requested `<harness>/<model_id>` namespace has nothing for the cell,
+`explain` auto-detects the right namespace (or, if multiple namespaces have
+data, lists them so you can pick).
 
 ## Trace upload
 
 ### `isth upload <user>/<dataset>`
 
-Upload the native agent session files captured under `traces/<label>/`
-(produced by run-producing commands with `--keep-sessions`) to a Hugging
-Face Hub dataset, where they render in the
+Upload the native agent session files captured under
+`traces/<commit>/<harness>/<model_id>/`
+(every run captures one — sharing traces is the point of the harness) to a
+Hugging Face Hub dataset, where they render in the
 [agent-traces viewer](https://huggingface.co/docs/hub/agent-traces). Takes
-the same `--runner`/`--provider`/`--model` flags to resolve the trace
+the same `--runner`/`--model` flags to resolve the trace
 namespace.
 
 ```bash
-# capture sessions while running …
-isth suite 59e4754341 --runner pi --provider huggingface --model <id> --keep-sessions
+# run the suite (native sessions are captured automatically) …
+isth suite 59e4754341 --runner pi --model <id>
 # … then upload them
-isth upload me/transformers-agent-traces --runner pi --provider huggingface --model <id>          # DRY RUN
-isth upload me/transformers-agent-traces --runner pi --provider huggingface --model <id> --push   # upload
+isth upload me/transformers-agent-traces --runner pi --model <id>          # DRY RUN
+isth upload me/transformers-agent-traces --runner pi --model <id> --push   # upload
 ```
 
 - **Dry-run by default.** Without `--push` it stages the files, writes a
@@ -218,6 +219,44 @@ isth upload me/transformers-agent-traces --runner pi --provider huggingface --mo
 - Datasets are created **private** unless you pass `--public`. Traces may
   contain prompts, tool output, local paths, and secrets — review before
   publishing.
+
+## Bucket sync
+
+### `isth sync [<namespace>/<bucket>]`
+
+Mirror the local run state with a Hugging Face
+[**bucket**](https://huggingface.co/docs/huggingface_hub/en/guides/buckets)
+(S3-like Xet object storage) via `hf buckets sync`. Unlike `upload` (which
+packages traces for one namespace as a standalone dataset), `sync` mirrors the
+**whole** `results/` and `traces/` trees plus a generated
+`results/MANIFEST.json` — the record of *which* configs/commits were run
+(per-commit git subject/date and the set of harness/model/variant/task/run
+cells present). The bucket id defaults to `lysandre/transformers-agentic-use`.
+
+```bash
+isth sync                       # DRY RUN: refresh the manifest + print the sync plan
+isth sync --push                # create bucket if needed + sync results/ + traces/ up
+isth sync --pull                # sync results/ + traces/ back down
+isth sync me/other-bucket --push  # target a different bucket
+isth sync --push --delete       # prune bucket files no longer present locally
+```
+
+- **Dry-run by default.** Without `--push`/`--pull` it (re)writes
+  `results/MANIFEST.json`, prints a per-commit summary, and shows the exact
+  `hf buckets create` / `hf buckets sync` commands — but transfers nothing.
+- `--push` ensures the bucket exists (`hf buckets create --exist-ok`) then
+  syncs `results/` and `traces/` up to `hf://buckets/<id>/results` and
+  `.../traces`. `--pull` syncs them back down, then refreshes the local
+  manifest. `hf buckets sync` only transfers changed files.
+- `--delete` adds rsync-style `--delete` to the sync (remove receiver-side
+  files absent on the sender). Off by default — sync only adds/updates.
+- Buckets are created **private** unless you pass `--public`. Because the
+  layout is commit-first, pushing a new commit only adds/refreshes that
+  commit's subtree — runs for other commits in the bucket are untouched. Same
+  safety caveats as `upload`: review before publishing.
+
+Requires the `hf` CLI (`huggingface_hub` with bucket support) and
+`hf auth login`.
 
 ## Workflows
 
