@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
-import statistics
 from collections import Counter
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
 from .paths import package_data_path, results_dir
+from .transcript import parse_transcript
+from .util import fmt_tokens, median
 
 
 VARIANTS = ("bare", "clone", "skill")
@@ -61,68 +62,38 @@ def _task_expectations() -> dict[str, str]:
 # --------- parsing ---------
 
 
-def _tool_result_content(block: dict) -> str:
-    c = block.get("content", "")
-    if isinstance(c, list):
-        return "\n".join(str(x.get("text", x)) if isinstance(x, dict) else str(x) for x in c)
-    return str(c)
-
-
 def parse(path: Path, task_id: str) -> Run:
-    tool_calls: list[tuple[str, dict]] = []
-    tool_results: list[str] = []
-    errored_calls = 0
+    tx = parse_transcript(path)
+    expected = _task_expectations().get(task_id)
+
+    tool_calls = [(s.name, s.input) for s in tx.steps]
+    tool_results = [s.result for s in tx.steps]
+    errored_calls = sum(1 for s in tx.steps if s.is_error)
     error_details: list[str] = []
-    final: str | None = None
     read_agentic: set[str] = set()
     read_docs: set[str] = set()
     ran_help = False
-    expected = _task_expectations().get(task_id)
     first_success_turn: int | None = None
-    # We need to pair each tool_result with the tool_call that generated it.
-    # Track by tool_use_id, and keep the running 1-indexed call number.
-    call_index_by_id: dict[str, int] = {}
 
-    for line in path.open():
-        e = json.loads(line)
-        t = e.get("type")
-        if t == "assistant":
-            for b in e.get("message", {}).get("content", []) or []:
-                if b.get("type") == "tool_use":
-                    name, inp = b.get("name", "?"), b.get("input") or {}
-                    tool_calls.append((name, inp))
-                    tid = b.get("id")
-                    if tid:
-                        call_index_by_id[tid] = len(tool_calls)
-                    if name in ("Read", "Grep", "Glob"):
-                        fp = inp.get("file_path") or inp.get("pattern") or inp.get("path") or ""
-                        if "/cli/agentic/" in fp and fp.endswith(".py"):
-                            read_agentic.add(Path(fp).name)
-                        for doc in ("AGENTS.md", "CLAUDE.md", "SKILL.md"):
-                            if doc in fp:
-                                read_docs.add(doc)
-                    elif name == "Bash":
-                        cmd = (inp.get("command") or "")
-                        if "transformers" in cmd and "--help" in cmd:
-                            ran_help = True
-        elif t == "user":
-            for b in e.get("message", {}).get("content", []) or []:
-                if b.get("type") == "tool_result":
-                    content = _tool_result_content(b)
-                    tool_results.append(content)
-                    if b.get("is_error"):
-                        errored_calls += 1
-                        snippet = content.strip().splitlines()
-                        error_details.append(snippet[0][:140] if snippet else "")
-                    if (
-                        first_success_turn is None
-                        and expected
-                        and expected in content.lower()
-                    ):
-                        first_success_turn = call_index_by_id.get(b.get("tool_use_id"), 0)
-        elif t == "result":
-            final = e.get("result") or ""
+    for i, s in enumerate(tx.steps, 1):
+        if s.is_error:
+            lines = s.result.strip().splitlines()
+            error_details.append(lines[0][:140] if lines else "")
+        if s.name in ("Read", "Grep", "Glob"):
+            fp = s.input.get("file_path") or s.input.get("pattern") or s.input.get("path") or ""
+            if "/cli/agentic/" in fp and fp.endswith(".py"):
+                read_agentic.add(Path(fp).name)
+            for doc in ("AGENTS.md", "CLAUDE.md", "SKILL.md"):
+                if doc in fp:
+                    read_docs.add(doc)
+        elif s.name == "Bash":
+            cmd = s.input.get("command") or ""
+            if "transformers" in cmd and "--help" in cmd:
+                ran_help = True
+        if first_success_turn is None and expected and expected in s.result.lower():
+            first_success_turn = i
 
+    final = tx.final
     meta_path = path.with_suffix(".meta.json")
     meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
     tokens = meta.get("tokens") or {}
@@ -214,19 +185,6 @@ def approach(runs: list[Run]) -> str:
 
 # --------- aggregates for table cells ---------
 
-
-def _fmt_tokens(n: int) -> str:
-    if n >= 10_000:
-        return f"{n // 1000}k"
-    if n >= 1000:
-        return f"{n / 1000:.1f}k"
-    return str(n)
-
-
-def _median(xs: list[float]) -> float:
-    return float(statistics.median(xs)) if xs else 0.0
-
-
 def cell(runs: list[Run]) -> str:
     """Compact cell:
 
@@ -264,7 +222,7 @@ def cell(runs: list[Run]) -> str:
 
     fs_turns = [r.first_success_turn for r in runs if r.first_success_turn is not None]
     if fs_turns:
-        parts.append(f"⇢{int(_median([float(t) for t in fs_turns]))}")
+        parts.append(f"⇢{int(median([float(t) for t in fs_turns]))}")
 
     docs_parts: list[str] = []
     n = len(runs)
@@ -281,25 +239,32 @@ def cell(runs: list[Run]) -> str:
     if docs_parts:
         parts.append("📖" + " ".join(docs_parts))
 
-    aborted = [r.status for r in runs if r.status != "ok"]
-    if aborted:
-        counter: Counter[str] = Counter(aborted)
-        parts.append("⏻" + ",".join(f"{k}:{v}" for k, v in counter.items()))
+    bad: Counter[str] = Counter()
+    for r in runs:
+        if r.status != "ok":
+            bad[r.status] += 1
+        elif r.exit_code != 0:
+            # Finished but exited nonzero (e.g. invalid model) — would otherwise
+            # masquerade as a clean run. Surfaced even for runs recorded before
+            # run_task started setting status="error".
+            bad["error"] += 1
+    if bad:
+        parts.append("⏻" + ",".join(f"{k}:{v}" for k, v in bad.items()))
 
-    parts.append(f"{_median([r.elapsed for r in runs]):.0f}s")
-    parts.append(f"new:{_fmt_tokens(int(_median([r.tokens_in + r.tokens_cache_creation for r in runs])))}")
-    parts.append(f"repeat:{_fmt_tokens(int(_median([r.tokens_cache_read for r in runs])))}")
-    parts.append(f"out:{_fmt_tokens(int(_median([r.tokens_out for r in runs])))}")
+    parts.append(f"{median([r.elapsed for r in runs]):.0f}s")
+    parts.append(f"new:{fmt_tokens(int(median([r.tokens_in + r.tokens_cache_creation for r in runs])))}")
+    parts.append(f"repeat:{fmt_tokens(int(median([r.tokens_cache_read for r in runs])))}")
+    parts.append(f"out:{fmt_tokens(int(median([r.tokens_out for r in runs])))}")
     return " · ".join(parts)
 
 
 # --------- loading ---------
 
 
-def load_runs(short_sha: str, variant: str, task_id: str, model: str | None = None) -> list[Run]:
+def load_runs(short_sha: str, variant: str, task_id: str, ns: str | None = None) -> list[Run]:
     return [
         parse(p, task_id)
-        for p in sorted(results_dir(model).glob(f"{short_sha}__{variant}__{task_id}__run*.jsonl"))
+        for p in sorted(results_dir(short_sha, ns).glob(f"{variant}__{task_id}__run*.jsonl"))
     ]
 
 
@@ -329,11 +294,11 @@ def _render_run(run: Run, idx: int) -> list[str]:
     return lines
 
 
-def _task_section(short_sha: str, task_id: str, model: str | None = None) -> str:
+def _task_section(short_sha: str, task_id: str, ns: str | None = None) -> str:
     lines: list[str] = [f"## {task_id}", ""]
     any_runs = False
     for variant in VARIANTS:
-        runs = load_runs(short_sha, variant, task_id, model)
+        runs = load_runs(short_sha, variant, task_id, ns)
         if not runs:
             continue
         any_runs = True
@@ -350,26 +315,26 @@ def _task_section(short_sha: str, task_id: str, model: str | None = None) -> str
     return "\n".join(lines) if any_runs else ""
 
 
-def discover_task_ids(short_sha: str, model: str | None = None) -> list[str]:
+def discover_task_ids(short_sha: str, ns: str | None = None) -> list[str]:
     ids: set[str] = set()
-    for path in results_dir(model).glob(f"{short_sha}__*.jsonl"):
+    for path in results_dir(short_sha, ns).glob("*.jsonl"):
         parts = path.stem.split("__")
-        if len(parts) == 4:
-            ids.add(parts[2])
+        if len(parts) == 3:
+            ids.add(parts[1])
     return sorted(ids)
 
 
-def analyze(short_sha: str, task_id: str | None = None, model: str | None = None) -> str:
-    tasks = [task_id] if task_id else discover_task_ids(short_sha, model)
+def analyze(short_sha: str, task_id: str | None = None, ns: str | None = None) -> str:
+    tasks = [task_id] if task_id else discover_task_ids(short_sha, ns)
     if not tasks:
-        loc = f" ({model})" if model else ""
+        loc = f" ({ns})" if ns else ""
         return f"No results for {short_sha}{loc}"
     header = f"# Agent behavior — transformers @ {short_sha}"
-    if model:
-        header += f"  [model: {model}]"
+    if ns:
+        header += f"  [{ns}]"
     out = [header, ""]
     for tid in tasks:
-        section = _task_section(short_sha, tid, model)
+        section = _task_section(short_sha, tid, ns)
         if section:
             out.append(section)
     return "\n".join(out)

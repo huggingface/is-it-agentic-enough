@@ -27,6 +27,8 @@ from .analyze import _task_expectations, bucket
 from .compare import expand_refs
 from .log import get_console
 from .paths import results_dir, state_root
+from .transcript import parse_transcript
+from .util import median
 
 
 # --- per-step parse (keeps tool_call <-> tool_result pairing) ---------------
@@ -65,71 +67,27 @@ def _trunc(s: str, n: int = 100) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
-def _result_text(block: dict) -> str:
-    c = block.get("content", "")
-    if isinstance(c, list):
-        return "\n".join(
-            str(x.get("text", x)) if isinstance(x, dict) else str(x) for x in c
-        )
-    return str(c)
-
-
 def _parse_run(jsonl_path: Path, task_id: str, run_index: int) -> CellRun:
     meta_path = jsonl_path.with_suffix(".meta.json")
     expected = _task_expectations().get(task_id)
 
-    steps_by_id: dict[str, Step] = {}
+    tx = parse_transcript(jsonl_path)
+    final = tx.final
+    broken = tx.broken
     ordered_steps: list[Step] = []
-    final: str | None = None
-    broken = False
-
-    try:
-        with jsonl_path.open() as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    e = json.loads(line)
-                except json.JSONDecodeError:
-                    # In-flight write: last line may be partial. Stop here but
-                    # don't lose what we already parsed.
-                    broken = True
-                    break
-                t = e.get("type")
-                if t == "assistant":
-                    for b in e.get("message", {}).get("content", []) or []:
-                        if b.get("type") == "tool_use":
-                            tid = b.get("id") or f"_{len(ordered_steps)}"
-                            name = b.get("name", "?")
-                            inp = b.get("input") or {}
-                            step = Step(
-                                idx=len(ordered_steps) + 1,
-                                name=name,
-                                inp=inp,
-                                bucket=bucket(name, inp),
-                                is_error=False,
-                                result_snippet="",
-                            )
-                            ordered_steps.append(step)
-                            steps_by_id[tid] = step
-                elif t == "user":
-                    for b in e.get("message", {}).get("content", []) or []:
-                        if b.get("type") == "tool_result":
-                            tid = b.get("tool_use_id")
-                            content = _result_text(b)
-                            snippet_lines = [
-                                ln for ln in content.splitlines() if ln.strip()
-                            ]
-                            snippet = snippet_lines[0] if snippet_lines else ""
-                            step = steps_by_id.get(tid) if tid else None
-                            if step is not None:
-                                step.is_error = bool(b.get("is_error"))
-                                step.result_snippet = _trunc(snippet, 140)
-                elif t == "result":
-                    final = e.get("result") or ""
-    except FileNotFoundError:
-        pass
+    for i, s in enumerate(tx.steps, 1):
+        snippet_lines = [ln for ln in s.result.splitlines() if ln.strip()]
+        snippet = snippet_lines[0] if snippet_lines else ""
+        ordered_steps.append(
+            Step(
+                idx=i,
+                name=s.name,
+                inp=s.input,
+                bucket=bucket(s.name, s.input),
+                is_error=s.is_error,
+                result_snippet=_trunc(snippet, 140),
+            )
+        )
 
     meta: dict = {}
     if meta_path.exists():
@@ -167,9 +125,9 @@ def _parse_run(jsonl_path: Path, task_id: str, run_index: int) -> CellRun:
     )
 
 
-def _runs_for(ref: str, variant: str, task: str, model: str | None) -> list[CellRun]:
-    rdir = results_dir(model)
-    paths = sorted(rdir.glob(f"{ref}__{variant}__{task}__run*.jsonl"))
+def _runs_for(ref: str, variant: str, task: str, ns: str | None) -> list[CellRun]:
+    rdir = results_dir(ref, ns)
+    paths = sorted(rdir.glob(f"{variant}__{task}__run*.jsonl"))
     runs: list[CellRun] = []
     for p in paths:
         # Extract the run index from the filename suffix `runN.jsonl`.
@@ -290,20 +248,13 @@ def _diff_table(refs: list[str], by_ref: dict[str, list[CellRun]]) -> Table:
     a, b = refs[0], refs[-1]
     runs_a, runs_b = by_ref[a], by_ref[b]
 
-    def _med(xs: list[float]) -> float | None:
-        if not xs:
-            return None
-        s = sorted(xs)
-        n = len(s)
-        return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
-
     def _stats(runs: list[CellRun]) -> dict[str, str]:
         finished = [r for r in runs if r.status not in ("in-flight", "broken-trace")]
         n = len(finished)
-        med_t = _med([r.elapsed_sec for r in finished if r.elapsed_sec is not None])
-        med_tc = _med([float(r.tool_call_count) for r in finished])
-        med_in = _med([float(r.tokens_in) for r in finished])
-        med_out = _med([float(r.tokens_out) for r in finished])
+        med_t = median([r.elapsed_sec for r in finished if r.elapsed_sec is not None], None)
+        med_tc = median([float(r.tool_call_count) for r in finished], None)
+        med_in = median([float(r.tokens_in) for r in finished], None)
+        med_out = median([float(r.tokens_out) for r in finished], None)
         total_calls = sum(r.tool_call_count for r in finished)
         total_err = sum(r.errored_calls for r in finished)
         match_total = sum(1 for r in finished if r.matched_expected is not None)
@@ -369,29 +320,32 @@ def _diff_table(refs: list[str], by_ref: dict[str, list[CellRun]]) -> Table:
 # --- public entry -----------------------------------------------------------
 
 
-def _discover_model_namespaces(
+def _discover_namespaces(
     refs: list[str], variant: str, task: str
-) -> dict[str | None, int]:
-    """Scan ``results/`` and ``results/<model>/`` for files matching this cell.
+) -> dict[str, int]:
+    """Scan ``results/<ref>/<harness>/<model_id>/`` for files matching this cell.
 
-    Returns ``{model_or_None: file_count}`` for every namespace that has at
-    least one matching ``.jsonl``. ``None`` means the default (un-namespaced)
-    ``results/`` dir.
+    Returns ``{"<harness>/<model_id>": file_count}`` for every namespace that
+    has at least one matching ``.jsonl`` across the given refs.
     """
     root = state_root() / "results"
     if not root.exists():
         return {}
-    found: dict[str | None, int] = {}
-    candidates: list[tuple[str | None, Path]] = [(None, root)]
-    for child in root.iterdir():
-        if child.is_dir():
-            candidates.append((child.name, child))
-    for ns, d in candidates:
-        n = 0
-        for ref in refs:
-            n += sum(1 for _ in d.glob(f"{ref}__{variant}__{task}__run*.jsonl"))
-        if n:
-            found[ns] = n
+    found: dict[str, int] = {}
+    for ref in refs:
+        ref_dir = root / ref
+        if not ref_dir.is_dir():
+            continue
+        for harness_dir in ref_dir.iterdir():
+            if not harness_dir.is_dir():
+                continue
+            for model_dir in harness_dir.iterdir():
+                if not model_dir.is_dir():
+                    continue
+                n = sum(1 for _ in model_dir.glob(f"{variant}__{task}__run*.jsonl"))
+                if n:
+                    ns = f"{harness_dir.name}/{model_dir.name}"
+                    found[ns] = found.get(ns, 0) + n
     return found
 
 
@@ -400,46 +354,39 @@ def explain(
     variant: str,
     task: str,
     *,
-    model: str | None = None,
+    ns: str | None = None,
 ) -> None:
     console = get_console()
     refs_resolved = expand_refs(refs)
 
-    # If the user didn't pass --model and the default results/ dir has
-    # nothing for this cell, look for a single model namespace that does
-    # and silently switch to it (with a one-line note). If multiple
-    # namespaces have data, refuse to guess and tell the user.
-    if model is None:
-        ns_counts = _discover_model_namespaces(refs_resolved, variant, task)
-        # Drop the default dir entry if it had nothing.
-        ns_counts.pop(None, None) if ns_counts.get(None, 0) == 0 else None
-        if not ns_counts.get(None):
-            namespaced = {k: v for k, v in ns_counts.items() if k is not None}
-            if not namespaced:
-                pass  # nothing anywhere; let the normal flow show "0 runs"
-            elif len(namespaced) == 1:
-                only = next(iter(namespaced))
-                console.print(
-                    Text(
-                        f"ℹ no results in default results/ dir; using "
-                        f"--model {only} ({namespaced[only]} matching files).",
-                        style="dim",
-                    )
+    # `ns` here is the <harness>/<model_id> namespace. If it has nothing for
+    # this cell, look for a single namespace that does and silently switch to it
+    # (with a one-line note). If several have data, refuse to guess.
+    avail = _discover_namespaces(refs_resolved, variant, task)
+    if not avail.get(ns or "", 0) and avail:
+        if len(avail) == 1:
+            only = next(iter(avail))
+            console.print(
+                Text(
+                    f"ℹ no results under {ns}; using "
+                    f"--runner/--model namespace {only} ({avail[only]} matching files).",
+                    style="dim",
                 )
-                model = only
-            else:
-                listing = ", ".join(
-                    f"--model {k} ({v} files)" for k, v in sorted(namespaced.items())
+            )
+            ns = only
+        else:
+            listing = ", ".join(
+                f"{k} ({v} files)" for k, v in sorted(avail.items())
+            )
+            console.print(
+                Text(
+                    f"⚠ no results under {ns}, but matching files exist under "
+                    f"multiple namespaces: {listing}. Pass --runner/--model "
+                    f"to pick one.",
+                    style="yellow",
                 )
-                console.print(
-                    Text(
-                        f"⚠ no results in default results/ dir, but matching files "
-                        f"exist under multiple model namespaces: {listing}. "
-                        f"Pass --model to pick one.",
-                        style="yellow",
-                    )
-                )
-                return
+            )
+            return
 
     # Header panel.
     title = Text()
@@ -449,8 +396,8 @@ def explain(
         title.append(f"Ref:   {refs_resolved[0]}")
     else:
         title.append("Refs:  " + " → ".join(refs_resolved))
-    if model:
-        title.append(f"   [model: {model}]", style="dim")
+    if ns:
+        title.append(f"   [{ns}]", style="dim")
     expected = _task_expectations().get(task)
     if expected:
         title.append(f"\nExpected substring: {expected!r}", style="dim")
@@ -458,7 +405,7 @@ def explain(
 
     by_ref: dict[str, list[CellRun]] = {}
     for ref in refs_resolved:
-        runs = _runs_for(ref, variant, task, model)
+        runs = _runs_for(ref, variant, task, ns)
         by_ref[ref] = runs
         console.print(Rule(f"[bold]{ref}[/bold]  ({len(runs)} run(s) on disk)", style="cyan"))
         if not runs:

@@ -3,7 +3,7 @@
 The Hub natively renders raw agent session JSONL (Claude Code, Codex, Pi) in a
 dedicated trace viewer — see https://huggingface.co/docs/hub/agent-traces. This
 module packages the native session files the harness collects under
-``traces/<label>/`` (when runs are executed with ``--keep-sessions``) into a
+``traces/<commit>/<harness>/<model_id>/`` (every run captures one) into a
 dataset directory with a ``traces``-tagged dataset card, and shells out to the
 ``hf`` CLI to upload it.
 
@@ -20,7 +20,7 @@ import subprocess
 from pathlib import Path
 
 from .log import log
-from .paths import traces_dir
+from .paths import state_root, traces_dir
 
 
 _CARD_TEMPLATE = """---
@@ -34,7 +34,7 @@ tags:
 Agent traces collected by [`isth`](https://github.com/) — headless coding-agent
 runs over the `transformers` library across commits and discovery variants.
 
-- **Runner / provider / model:** `{label}`
+- **Runner / model:** `{label}`
 - **Sessions:** {n} native session `.jsonl` files (one per run).
 
 Each file is a raw agent session, natively viewable in the Hub
@@ -51,13 +51,20 @@ def _have_hf_cli() -> bool:
 
 def stage(label: str | None, repo: str, dest: Path | None = None) -> tuple[Path, list[Path]]:
     """Assemble a staging dir: copy the label's trace files + write a dataset
-    card. Returns ``(staging_dir, trace_files)``."""
-    src = traces_dir(label)
-    trace_files = sorted(p for p in src.glob("*.jsonl") if p.is_file())
-    staging = dest or (src.parent / f".upload__{(label or 'default').replace('/', '__')}")
+    card. Returns ``(staging_dir, trace_files)``.
+
+    Traces live at ``traces/<commit>/<harness>/<model_id>/<file>.jsonl``; ``label``
+    is the ``<harness>/<model_id>`` namespace. Files are collected across all
+    commits and flattened to ``<commit>__<file>.jsonl`` so they stay unique."""
+    root = traces_dir()
+    pattern = f"*/{label}/*.jsonl" if label else "*/*/*/*.jsonl"
+    trace_files = sorted(p for p in root.glob(pattern) if p.is_file())
+    # Stage outside results/ and traces/ so `isth sync` doesn't pick it up.
+    staging = dest or (state_root() / f".upload__{(label or 'default').replace('/', '__')}")
     staging.mkdir(parents=True, exist_ok=True)
     for p in trace_files:
-        shutil.copyfile(p, staging / p.name)
+        commit = p.relative_to(root).parts[0]
+        shutil.copyfile(p, staging / f"{commit}__{p.name}")
     (staging / "README.md").write_text(
         _CARD_TEMPLATE.format(repo=repo, label=label or "(default)", n=len(trace_files))
     )
@@ -72,8 +79,8 @@ def upload(repo: str, label: str | None = None, *, push: bool = False, private: 
     staging, trace_files = stage(label, repo)
     if not trace_files:
         log(
-            f"No native session traces found under traces/{label or ''}. "
-            "Re-run with `--keep-sessions` to capture them."
+            f"No native session traces found for {label or '(default)'}. "
+            "Run the suite first (every run captures its native session)."
         )
         return 1
 

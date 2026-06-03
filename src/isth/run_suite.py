@@ -2,26 +2,18 @@
 
 from __future__ import annotations
 
-import json
-
 from .dashboard import Dashboard, stderr_is_tty
 from .log import get_console, log
 from .paths import results_dir, results_label
 from .run_task import VARIANTS, load_tasks, run
 from .setup_commit import setup
-
-
-def _read_meta(path) -> dict | None:
-    try:
-        return json.loads(path.read_text())
-    except Exception:
-        return None
+from .util import read_meta
 
 
 def run_suite(
     ref: str,
     *,
-    runs: int = 3,
+    runs: int | None = None,
     tasks: list[str] | None = None,
     variants: list[str] | None = None,
     skip_existing: bool = False,
@@ -29,8 +21,6 @@ def run_suite(
     max_tool_calls: int = 50,
     live: bool = True,
     runner: str = "claude",
-    provider: str | None = None,
-    keep_sessions: bool = False,
 ) -> None:
     info = setup(ref)
     short = info["short"]
@@ -49,9 +39,13 @@ def run_suite(
         log(f"[{short}] skipping variants for this commit: {sorted(skipped)}")
 
     def _runs_for(tid: str) -> int:
-        return int(all_tasks[tid].get("runs") or runs)
+        # Explicit --runs overrides every per-task `runs:`; otherwise fall back
+        # to the task's own override, then to 3.
+        if runs is not None:
+            return runs
+        return int(all_tasks[tid].get("runs") or 3)
 
-    rdir = results_dir(results_label(runner, provider, model))
+    rdir = results_dir(short, results_label(runner, model))
     plan: list[tuple[str, str, str, int]] = []
     for tid in selected:
         for variant in resolved_variants:
@@ -60,10 +54,11 @@ def run_suite(
 
     total = len(plan)
     model_tag = f" [{runner}:{model}]" if model else f" [{runner}]"
+    runs_desc = f"{runs} (--runs override)" if runs is not None else "per-task `runs:` or 3"
     log(
         f"suite {short}{model_tag}: {total} runs  "
         f"({len(selected)} tasks × {len(resolved_variants)} variants, "
-        f"runs per task: default {runs} + per-task overrides)"
+        f"runs per task: {runs_desc})"
     )
 
     enabled = live and stderr_is_tty()
@@ -77,13 +72,13 @@ def run_suite(
 
     with dash.live():
         for i, (_ref, variant, tid, run_idx) in enumerate(plan, 1):
-            out = rdir / f"{short}__{variant}__{tid}__run{run_idx}.jsonl"
-            meta_path = rdir / f"{short}__{variant}__{tid}__run{run_idx}.meta.json"
+            out = rdir / f"{variant}__{tid}__run{run_idx}.jsonl"
+            meta_path = rdir / f"{variant}__{tid}__run{run_idx}.meta.json"
             if skip_existing and out.exists():
                 log(f"[{i}/{total}] skip (exists) {variant} {tid} run{run_idx}")
                 dash.mark_skipped_existing(
                     short, variant, tid, run_idx,
-                    _read_meta(meta_path) if meta_path.exists() else None,
+                    read_meta(meta_path),
                 )
                 continue
             log(f"[{i}/{total}] → {variant} {tid} run{run_idx}")
@@ -91,14 +86,13 @@ def run_suite(
             try:
                 run(
                     ref, variant, tid, run_idx,
-                    model=model, max_tool_calls=max_tool_calls,
-                    runner=runner, provider=provider, keep_sessions=keep_sessions,
+                    model=model, max_tool_calls=max_tool_calls, runner=runner,
                 )
             except Exception as e:  # noqa: BLE001
                 log(f"  ! failed: {e}")
                 dash.mark_failed(short, variant, tid, run_idx, str(e))
                 continue
-            meta = _read_meta(meta_path) if meta_path.exists() else None
+            meta = read_meta(meta_path)
             if meta is None:
                 dash.mark_failed(short, variant, tid, run_idx, "no meta")
             else:

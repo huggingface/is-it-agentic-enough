@@ -57,7 +57,6 @@ class Runner:
         cfg_dir: Path,
         variant: str,
         model: str | None,
-        provider: str | None,
         session_dir: Path | None = None,
     ) -> list[str]:
         raise NotImplementedError
@@ -86,7 +85,7 @@ class Runner:
 class ClaudeRunner(Runner):
     name = "claude"
 
-    def build_cmd(self, prompt, ws, cfg_dir, variant, model, provider, session_dir=None):
+    def build_cmd(self, prompt, ws, cfg_dir, variant, model, session_dir=None):
         cmd = [
             "claude",
             "-p",
@@ -99,13 +98,11 @@ class ClaudeRunner(Runner):
             "--add-dir",
             str(ws),
         ]
-        # When not capturing sessions, stay ephemeral (historical behavior).
-        # When capturing, let Claude Code persist to its default project store
+        # Sessions are always captured (sharing traces is the point of the
+        # harness): let Claude Code persist to its default project store
         # (~/.claude/projects/<escaped-cwd>/…); collect_session finds it by cwd.
         # We deliberately do NOT relocate CLAUDE_CONFIG_DIR — that would lose
         # the user's Claude auth.
-        if session_dir is None:
-            cmd.append("--no-session-persistence")
         if model:
             cmd.extend(["--model", model])
         if variant == "skill":
@@ -196,41 +193,36 @@ def _map_args(canonical_name: str, args: dict | None) -> dict:
 
 
 class PiRunner(Runner):
-    """Drives the ``pi`` CLI (``@mariozechner/pi-coding-agent``) against any
-    provider Pi knows — in particular ``huggingface`` for HF inference
-    providers. Translates Pi's ``--mode json`` event stream to the canonical
-    schema."""
+    """Drives the ``pi`` CLI (``@mariozechner/pi-coding-agent``) against
+    Hugging Face inference providers (the only provider we use it with).
+    Translates Pi's ``--mode json`` event stream to the canonical schema."""
 
     name = "pi"
+    PROVIDER = "huggingface"
 
-    def build_cmd(self, prompt, ws, cfg_dir, variant, model, provider, session_dir=None):
+    def build_cmd(self, prompt, ws, cfg_dir, variant, model, session_dir=None):
         cmd = [
             "pi",
             "-p",
             prompt,
             "--mode",
             "json",
+            "--provider",
+            self.PROVIDER,
         ]
-        # Persist the native session into session_dir when capturing (for Hub
-        # upload); otherwise stay ephemeral.
+        # Always persist the native session into session_dir (for Hub upload).
         if session_dir is not None:
             cmd.extend(["--session-dir", str(session_dir)])
-        else:
-            cmd.append("--no-session")
-        if provider:
-            cmd.extend(["--provider", provider])
         if model:
             cmd.extend(["--model", model])
         # Give Pi the HF key for its OWN model calls only (the task env stays
         # token-free; see env()). Fail fast with a clear message if missing.
         token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
-        if (provider or "") == "huggingface":
-            if not token:
-                raise SystemExit(
-                    "HF_TOKEN (or HUGGING_FACE_HUB_TOKEN) must be set to run the "
-                    "pi runner against the huggingface provider."
-                )
-            cmd.extend(["--api-key", token])
+        if not token:
+            raise SystemExit(
+                "HF_TOKEN (or HUGGING_FACE_HUB_TOKEN) must be set to run the pi runner."
+            )
+        cmd.extend(["--api-key", token])
         if variant == "skill":
             cmd.extend(["--skill", str(cfg_dir / "plugin" / "skills" / "transformers")])
         return cmd

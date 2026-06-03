@@ -58,34 +58,36 @@ via `--plugin-dir`, Pi via `--skill`).
 # stripped from the agent's task environment so model downloads stay anonymous
 # and comparable to the Claude runs.
 export HF_TOKEN=hf_...
-isth diff A..B --runner pi --provider huggingface \
+isth diff A..B --runner pi \
   --model Qwen/Qwen3-Coder-480B-A35B-Instruct > progress.md
 ```
 
 Pi's native event stream is normalized to Claude Code's schema at write time, so
 the analysis/report commands (`analyze`/`compare`/`explain`) work identically
-for both runners. Results are namespaced under
-`results/<runner>/<provider>/<model>/` so Pi/HF runs never collide with Claude
-runs (Claude keeps the historical `results/<model>/`). Pass the same
-`--runner`/`--provider`/`--model` to `analyze`/`compare`/`explain`/`upload` to
-read them back. Note: HF inference providers generally don't prompt-cache, so
+for both runners. Results are laid out by commit first:
+`results/<commit>/<harness>/<model_id>/` (see
+[Result layout](#result-layout)), so a Pi/HF run never collides with a Claude
+run. Pass the same `--runner`/`--model` to
+`analyze`/`compare`/`explain`/`upload`/`sync` to read them back. Note: HF
+inference providers generally don't prompt-cache, so
 the `repeat` (cache-read) token column is ~0 for Pi runs — read `new`≈input and
 `out`=output. `isth explain` shows explicit `tokens in:/out:` per run and
 median in/out per cell.
 
 ## Uploading traces to the Hugging Face Hub
 
-Runs executed with `--keep-sessions` persist each agent's **native** session
-file (Claude Code / Pi) under `traces/<runner>/<provider>/<model>/`. These are
-natively rendered by the Hub
+Every run persists the agent's **native** session file (Claude Code / Pi)
+under `traces/<commit>/<harness>/<model_id>/`, mirroring the
+[result layout](#result-layout) — sharing traces is the whole point, so this
+is unconditional. These are natively rendered by the Hub
 [agent-traces viewer](https://huggingface.co/docs/hub/agent-traces). `isth
 upload` packages them into a dataset (with a `traces`-tagged card) and uploads
 via the `hf` CLI:
 
 ```bash
-isth suite <ref> --runner pi --provider huggingface --model <id> --keep-sessions
-isth upload <user>/<dataset> --runner pi --provider huggingface --model <id>          # DRY RUN
-isth upload <user>/<dataset> --runner pi --provider huggingface --model <id> --push   # actually upload
+isth suite <ref> --runner pi --model <id>
+isth upload <user>/<dataset> --runner pi --model <id>          # DRY RUN
+isth upload <user>/<dataset> --runner pi --model <id> --push   # actually upload
 ```
 
 Uploads are **dry-run by default** (nothing is pushed without `--push`) and
@@ -107,9 +109,10 @@ isth analyze <short-sha> [task_id]          # per-commit markdown report
 isth compare <refs...>                      # cross-ref diff table
 isth explain <variant> <task> <refs...>     # per-cell tool-call timeline
 isth upload <user>/<dataset>                # push captured traces to the Hub (dry-run by default)
+isth sync [<namespace>/<bucket>]            # mirror results/ + traces/ + manifest with the HF bucket (dry-run)
 ```
 
-Add `--runner pi --provider huggingface --model <id>` to any run-producing
+Add `--runner pi --model <id>` to any run-producing
 command (`run`/`suite`/`diff`) to evaluate an HF-served model instead of Claude.
 
 Most-common path: `isth diff A..B > progress.md` builds caches, runs the
@@ -133,24 +136,69 @@ Each `(commit × variant × task)` cell ran 3 times, so a full suite for one
 commit is 3 variants × 8 tasks × 3 runs = 72 runs (skipping `skill` for the
 earlier commit, which predates the manifest).
 
-### What gets serialized
+### Result layout
 
-For every individual run the harness writes two files under `results/`:
+Runs are stored commit-first, so everything for one commit lives under one
+directory tree:
 
-- `<sha>__<variant>__<task>__run<N>.jsonl` — the raw Claude Code
+```
+results/<commit>/<harness>/<model_id>/<variant>__<task>__run<N>.jsonl   (+ .meta.json)
+```
+
+- **`<commit>`** — the 10-char short SHA the run was executed against.
+- **`<harness>`** — the coding agent that drove the run: `claude` or `pi`.
+- **`<model_id>`** — the model name with `/` replaced by `--` so it stays a
+  single path segment, or `default` when `--model` is omitted. For `claude`
+  e.g. `opus`; for `pi` (always HF-served) e.g.
+  `Qwen--Qwen3-Coder-480B-A35B-Instruct`.
+
+So a default Claude run lands at
+`results/0ea540efff/claude/default/bare__classify-sentiment__run1.jsonl`, and a
+Pi/HF run at
+`results/0ea540efff/pi/Qwen--Qwen3-Coder-480B-A35B-Instruct/bare__classify-sentiment__run1.jsonl`.
+Native session traces mirror this exact tree under `traces/` (captured on
+every run).
+
+For every individual run the harness writes two files:
+
+- `<variant>__<task>__run<N>.jsonl` — the raw Claude Code
   stream-json transcript: `system` events (session start, hook fires),
   every `assistant` turn with its tool-call arguments, every `user` turn
   carrying the `tool_result` payload (with `is_error` flags), and the
   final `result` event. This is the full trace of what the agent saw,
   what it ran, and what came back — nothing is summarised away.
-- `<sha>__<variant>__<task>__run<N>.meta.json` — a small sidecar:
-  resolved SHA, variant, task id, run index, model, status, tool-call
-  count, wall-clock seconds, exit code, token accounting (`input`,
-  `output`, `cache_read`, `cache_creation`), the exact `claude` command
-  that was executed, and the workspace path.
+- `<variant>__<task>__run<N>.meta.json` — a small sidecar:
+  resolved SHA, variant, task id, run index, runner, model,
+  status, tool-call count, wall-clock seconds, exit code, token accounting
+  (`input`, `output`, `cache_read`, `cache_creation`), the exact `claude`
+  command that was executed, and the workspace path.
 
 For the two commits above, that's 6 variants-with-data × 8 tasks × 3 runs =
-~144 `.jsonl` + 144 `.meta.json` files in `results/`.
+~144 `.jsonl` + 144 `.meta.json` files under `results/`.
+
+### Syncing with the bucket
+
+`isth sync` mirrors `results/` + `traces/` and a generated
+`results/MANIFEST.json` (the record of *which* configs/commits were run —
+per-commit git subject/date plus the set of harness/model/variant/task/run
+cells present) to a Hugging Face **[bucket](https://huggingface.co/docs/huggingface_hub/en/guides/buckets)**
+(S3-like Xet object storage) via `hf buckets sync`. It is **dry-run by default**:
+
+```bash
+isth sync                       # DRY RUN: refresh the manifest + print the sync plan
+isth sync --push                # create bucket if needed + sync results/ + traces/ + manifest up
+isth sync --pull                # sync results/ + traces/ back down from the bucket
+isth sync --push --delete       # also prune bucket files that no longer exist locally
+```
+
+The bucket defaults to `lysandre/transformers-agentic-use`; pass a different
+`<namespace>/<name>` as the first argument. Buckets are created **private**
+unless you pass `--public`. `results/` and `traces/` land under matching
+prefixes in the bucket (`hf://buckets/<id>/results`, `.../traces`).
+`hf buckets sync` only transfers files that changed, and because the layout is
+commit-first, syncing different commits (or different machines) never
+overwrites unrelated runs — each `--push` just adds/refreshes that commit's
+subtree (unless you pass `--delete`).
 
 ### What `compare` shows on top of that
 

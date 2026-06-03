@@ -31,6 +31,8 @@ from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
 
+from .util import median
+
 
 # --- cell state -------------------------------------------------------------
 
@@ -41,11 +43,12 @@ class CellAgg:
 
     total_planned: int = 0
     runs_done: int = 0
-    runs_failed: int = 0
+    runs_failed: int = 0  # run() raised before producing meta
     elapsed_secs: list[float] = field(default_factory=list)
     tool_calls: list[int] = field(default_factory=list)
     errors: int = 0  # is_error tool results, summed across runs
     aborted: int = 0  # runs killed for budget / timeout
+    errored: int = 0  # runs that finished in an error state (nonzero exit / is_error)
     running: bool = False
 
     @property
@@ -54,19 +57,17 @@ class CellAgg:
 
     @property
     def median_time(self) -> float:
-        return _median(self.elapsed_secs) if self.elapsed_secs else 0.0
+        return median(self.elapsed_secs)
 
     @property
     def median_tool_calls(self) -> float:
-        return _median(self.tool_calls) if self.tool_calls else 0.0
+        return median(self.tool_calls)
 
 
-def _median(xs: list[float]) -> float:
-    s = sorted(xs)
-    n = len(s)
-    if n == 0:
-        return 0.0
-    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+def _meta_errored(meta: dict) -> bool:
+    """A finished run that didn't do its job: explicit error status or a nonzero
+    exit code (e.g. invalid model, auth failure)."""
+    return meta.get("status") == "error" or (meta.get("exit_code") or 0) != 0
 
 
 # --- dashboard --------------------------------------------------------------
@@ -137,6 +138,8 @@ class Dashboard:
             cell.tool_calls.append(int(meta.get("tool_call_count") or 0))
             if meta.get("status") in ("budget_tool_calls", "timeout"):
                 cell.aborted += 1
+            elif _meta_errored(meta):
+                cell.errored += 1
         self.completed += 1
         if self._current and self._current[:3] == (ref, variant, task):
             self._current = None
@@ -153,6 +156,8 @@ class Dashboard:
             cell.tool_calls.append(int(meta.get("tool_call_count") or 0))
             if meta.get("status") in ("budget_tool_calls", "timeout"):
                 cell.aborted += 1
+            elif _meta_errored(meta):
+                cell.errored += 1
         elif cell:
             cell.runs_done += 1
         self.completed += 1
@@ -304,6 +309,8 @@ class Dashboard:
         # --- bad-news flags ---
         if cell.aborted:
             out.append(f"  ⏻{cell.aborted}", style="bold red")
+        if cell.errored:
+            out.append(f"  ✗{cell.errored}", style="bold red")
         if cell.runs_failed:
             out.append(f"  !{cell.runs_failed}", style="bold red")
 

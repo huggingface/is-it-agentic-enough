@@ -23,18 +23,17 @@ def _cmd_run(args: argparse.Namespace) -> int:
     from .log import log
     from .paths import results_dir, results_label
     from .run_task import VARIANTS, run
-    from .setup_commit import resolve_sha
 
-    refs = expand_refs([args.ref])
+    refs = expand_refs([args.ref])  # each already resolved to a 10-char short sha
     variants = args.variants or list(VARIANTS)
     total = len(refs) * len(variants)
-    rdir = results_dir(results_label(args.runner, args.provider, args.model))
+    ns = results_label(args.runner, args.model)
     done = 0
     for ref in refs:
-        short = resolve_sha(ref)[:10] if len(ref) < 10 else ref[:10]
+        rdir = results_dir(ref, ns)
         for variant in variants:
             done += 1
-            out = rdir / f"{short}__{variant}__{args.task}__run{args.run_index}.jsonl"
+            out = rdir / f"{variant}__{args.task}__run{args.run_index}.jsonl"
             if out.exists() and not args.force_rerun:
                 log(f"[{done}/{total}] skip (exists) {ref} {variant} {args.task} run{args.run_index}")
                 continue
@@ -48,8 +47,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     model=args.model,
                     max_tool_calls=args.max_tool_calls,
                     runner=args.runner,
-                    provider=args.provider,
-                    keep_sessions=args.keep_sessions,
                 )
             except SystemExit as e:
                 # e.g. "skill not available for <sha>" — don't abort the loop
@@ -70,8 +67,6 @@ def _cmd_suite(args: argparse.Namespace) -> int:
         max_tool_calls=args.max_tool_calls,
         live=not args.no_live,
         runner=args.runner,
-        provider=args.provider,
-        keep_sessions=args.keep_sessions,
     )
     return 0
 
@@ -80,8 +75,8 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     from .analyze import analyze
     from .paths import results_label
 
-    label = results_label(args.runner, args.provider, args.model)
-    print(analyze(args.sha, args.task, model=label))
+    label = results_label(args.runner, args.model)
+    print(analyze(args.sha, args.task, ns=label))
     return 0
 
 
@@ -89,8 +84,8 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     from .compare import compare
     from .paths import results_label
 
-    label = results_label(args.runner, args.provider, args.model)
-    print(compare(args.refs, model=label))
+    label = results_label(args.runner, args.model)
+    print(compare(args.refs, ns=label))
     return 0
 
 
@@ -98,8 +93,8 @@ def _cmd_explain(args: argparse.Namespace) -> int:
     from .explain import explain
     from .paths import results_label
 
-    label = results_label(args.runner, args.provider, args.model)
-    explain(args.refs, args.variant, args.task, model=label)
+    label = results_label(args.runner, args.model)
+    explain(args.refs, args.variant, args.task, ns=label)
     return 0
 
 
@@ -111,16 +106,15 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     the partial results are still comparable — earlier tasks have equal samples
     across refs.
     """
-    import json
-
     from .compare import compare, expand_refs
     from .dashboard import Dashboard, stderr_is_tty
     from .log import get_console, log
     from .paths import results_dir, results_label
     from .run_task import VARIANTS, load_tasks, run
     from .setup_commit import setup
+    from .util import read_meta
 
-    label = results_label(args.runner, args.provider, args.model)
+    label = results_label(args.runner, args.model)
 
     refs = expand_refs(args.spec if isinstance(args.spec, list) else [args.spec])
     if len(refs) < 2:
@@ -152,7 +146,9 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     #    started yet.
     plan: list[tuple[str, str, str, int]] = []
     for tid in selected_tasks:
-        task_runs = int(all_tasks[tid].get("runs") or args.runs)
+        # Explicit --runs overrides every per-task `runs:`; otherwise fall back
+        # to the task's own override, then to 3.
+        task_runs = args.runs if args.runs is not None else int(all_tasks[tid].get("runs") or 3)
         for run_idx in range(1, task_runs + 1):
             for variant in chosen_variants:
                 for ref in refs:
@@ -160,7 +156,6 @@ def _cmd_diff(args: argparse.Namespace) -> int:
                         continue
                     plan.append((ref, variant, tid, run_idx))
 
-    rdir = results_dir(label)
     total = len(plan)
     enabled = (not args.no_live) and stderr_is_tty()
     title = (
@@ -172,21 +167,15 @@ def _cmd_diff(args: argparse.Namespace) -> int:
         refs=refs, plan=plan, console=get_console(), enabled=enabled, title=title
     )
 
-    def _read_meta(p) -> dict | None:
-        try:
-            return json.loads(p.read_text())
-        except Exception:
-            return None
-
     with dash.live():
         for i, (ref, variant, tid, run_idx) in enumerate(plan, 1):
-            out_path = rdir / f"{ref}__{variant}__{tid}__run{run_idx}.jsonl"
-            meta_path = rdir / f"{ref}__{variant}__{tid}__run{run_idx}.meta.json"
+            rdir = results_dir(ref, label)
+            out_path = rdir / f"{variant}__{tid}__run{run_idx}.jsonl"
+            meta_path = rdir / f"{variant}__{tid}__run{run_idx}.meta.json"
             if out_path.exists() and not args.force_rerun:
                 log(f"[{i}/{total}] skip (exists) {ref} {variant} {tid} run{run_idx}")
                 dash.mark_skipped_existing(
-                    ref, variant, tid, run_idx,
-                    _read_meta(meta_path) if meta_path.exists() else None,
+                    ref, variant, tid, run_idx, read_meta(meta_path),
                 )
                 continue
             log(f"[{i}/{total}] → {ref} {variant} {tid} run{run_idx}")
@@ -200,20 +189,18 @@ def _cmd_diff(args: argparse.Namespace) -> int:
                     model=args.model,
                     max_tool_calls=args.max_tool_calls,
                     runner=args.runner,
-                    provider=args.provider,
-                    keep_sessions=args.keep_sessions,
                 )
             except Exception as e:  # noqa: BLE001
                 log(f"  ! failed: {e}")
                 dash.mark_failed(ref, variant, tid, run_idx, str(e))
                 continue
-            meta = _read_meta(meta_path) if meta_path.exists() else None
+            meta = read_meta(meta_path)
             if meta is None:
                 dash.mark_failed(ref, variant, tid, run_idx, "no meta")
             else:
                 dash.mark_done(ref, variant, tid, run_idx, meta)
 
-    print(compare(refs, model=label))
+    print(compare(refs, ns=label))
     return 0
 
 
@@ -221,8 +208,20 @@ def _cmd_upload(args: argparse.Namespace) -> int:
     from .paths import results_label
     from .upload import upload
 
-    label = results_label(args.runner, args.provider, args.model)
+    label = results_label(args.runner, args.model)
     return upload(args.repo, label, push=args.push, private=not args.public)
+
+
+def _cmd_sync(args: argparse.Namespace) -> int:
+    from .sync import sync
+
+    return sync(
+        args.bucket,
+        push=args.push,
+        pull=args.pull,
+        private=not args.public,
+        delete=args.delete,
+    )
 
 
 def _cmd_tasks(args: argparse.Namespace) -> int:  # noqa: ARG001
@@ -234,9 +233,12 @@ def _cmd_tasks(args: argparse.Namespace) -> int:  # noqa: ARG001
 
 
 _MODEL_HELP = (
-    "Model for Claude Code to use (e.g. `sonnet-shared-on-slack-old`, `opus`, `haiku`, or a full id "
-    "like `claude-sonnet-shared-on-slack-old-4-6`). Passed through to `claude --model`. Results are "
-    "namespaced under results/<model>/ so they don't collide with default-model runs."
+    "Model the runner uses. For `--runner claude`: a Claude alias/id (`sonnet`, "
+    "`opus`, `claude-sonnet-4-6`), passed to `claude --model`. For `--runner pi`: "
+    "an HF model id (`Qwen/Qwen3-Coder-480B-A35B-Instruct`), served via HF "
+    "inference providers. Results are namespaced under "
+    "results/<commit>/<harness>/<model_id>/ (model_id is the model name, or "
+    "`default` when omitted) so they don't collide with other runs."
 )
 
 
@@ -246,31 +248,23 @@ def _add_model_flag(sp: argparse.ArgumentParser) -> None:
 
 _RUNNER_HELP = (
     "Coding agent that drives each run. `claude` (default) shells out to the "
-    "`claude` CLI; `pi` shells out to the `pi` CLI, which can serve any model "
-    "through Hugging Face inference providers (see --provider). Results for "
-    "non-claude runners are namespaced under results/<runner>/<provider>/<model>/."
-)
-
-_PROVIDER_HELP = (
-    "Model provider for the `pi` runner (e.g. `huggingface`, `anthropic`, "
-    "`openai`). Defaults to `huggingface`. Ignored by the `claude` runner."
+    "`claude` CLI (your configured Claude model); `pi` shells out to the `pi` "
+    "CLI, which serves the `--model` via Hugging Face inference providers "
+    "(needs HF_TOKEN). Results are laid out as "
+    "results/<commit>/<harness>/<model_id>/, e.g. claude/opus or "
+    "pi/Qwen--Qwen3-Coder-480B-A35B-Instruct."
 )
 
 
 def _add_runner_flags(sp: argparse.ArgumentParser) -> None:
     sp.add_argument("--runner", default="claude", choices=["claude", "pi"], help=_RUNNER_HELP)
-    sp.add_argument("--provider", default="huggingface", help=_PROVIDER_HELP)
 
 
-_KEEP_SESSIONS_HELP = (
-    "Persist each run's native agent session file (Claude Code / Pi) under "
-    "traces/<label>/ so it can be uploaded to the Hugging Face Hub with "
-    "`isth upload`. Off by default (runs stay ephemeral)."
+_RUNS_HELP = (
+    "Number of runs per (variant, task) cell. When given, this overrides ALL "
+    "per-task `runs:` values in tasks.yaml. When omitted, each task uses its own "
+    "`runs:` override if it has one, otherwise 3."
 )
-
-
-def _add_keep_sessions_flag(sp: argparse.ArgumentParser) -> None:
-    sp.add_argument("--keep-sessions", action="store_true", help=_KEEP_SESSIONS_HELP)
 
 
 _VERBOSE_HELP = "Emit per-tool-call events from each run (default is run-level summaries only)."
@@ -341,7 +335,6 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("variants", nargs="*", default=None, choices=["bare", "clone", "skill"])
     _add_model_flag(rp)
     _add_runner_flags(rp)
-    _add_keep_sessions_flag(rp)
     _add_verbose_flag(rp)
     _add_force_rerun_flag(rp)
     _add_max_tool_calls_flag(rp)
@@ -349,12 +342,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     suite = sub.add_parser("suite", help="Run the full task suite for a ref.")
     suite.add_argument("ref")
-    suite.add_argument("--runs", type=int, default=3)
+    suite.add_argument("--runs", type=int, default=None, help=_RUNS_HELP)
     suite.add_argument("--tasks", nargs="*", default=None)
     suite.add_argument("--variants", nargs="*", default=None, choices=["bare", "clone", "skill"])
     _add_model_flag(suite)
     _add_runner_flags(suite)
-    _add_keep_sessions_flag(suite)
     _add_verbose_flag(suite)
     _add_force_rerun_flag(suite)
     _add_max_tool_calls_flag(suite)
@@ -393,7 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     dp.add_argument("spec", help="Ref range like `ref1..ref2` or `A..B..C`.")
-    dp.add_argument("--runs", type=int, default=3)
+    dp.add_argument("--runs", type=int, default=None, help=_RUNS_HELP)
     dp.add_argument("--tasks", nargs="*", default=None)
     dp.add_argument("--variants", nargs="*", default=None, choices=["bare", "clone", "skill"])
     _add_model_flag(dp)
@@ -402,7 +394,6 @@ def build_parser() -> argparse.ArgumentParser:
     _add_max_tool_calls_flag(dp)
     _add_no_live_flag(dp)
     _add_runner_flags(dp)
-    _add_keep_sessions_flag(dp)
     dp.set_defaults(func=_cmd_diff)
 
     ep = sub.add_parser(
@@ -432,9 +423,9 @@ def build_parser() -> argparse.ArgumentParser:
         "upload",
         help="Upload captured native agent traces to a Hugging Face Hub dataset.",
         description=(
-            "Package the native session files captured under traces/<label>/ "
-            "(produced by runs with --keep-sessions) into a dataset directory "
-            "with a `traces`-tagged card, and upload via the `hf` CLI. "
+            "Package the native session files captured under "
+            "traces/<commit>/<harness>/<model_id>/ (every run captures one) into a "
+            "dataset directory with a `traces`-tagged card, and upload via the `hf` CLI. "
             "DRY-RUN by default — nothing is pushed unless you pass --push. "
             "Datasets are created private unless you pass --public."
         ),
@@ -445,6 +436,36 @@ def build_parser() -> argparse.ArgumentParser:
     up.add_argument("--push", action="store_true", help="Actually upload (otherwise dry-run).")
     up.add_argument("--public", action="store_true", help="Create the dataset as public (default: private).")
     up.set_defaults(func=_cmd_upload)
+
+    syp = sub.add_parser(
+        "sync",
+        help="Sync results/ + traces/ + a run manifest with a Hugging Face bucket.",
+        description=(
+            "Mirror local run state to/from a Hugging Face bucket (S3-like Xet "
+            "storage) via `hf buckets sync`. Refreshes results/MANIFEST.json (the "
+            "record of which configs/commits were run), then syncs results/ and "
+            "traces/ (laid out as <commit>/<harness>/<model_id>/) under matching "
+            "prefixes in the bucket. DRY-RUN by default — pass --push to upload "
+            "(creating the bucket if needed) or --pull to download. Buckets are "
+            "created private unless --public."
+        ),
+    )
+    syp.add_argument(
+        "bucket",
+        nargs="?",
+        default="lysandre/transformers-agentic-use",
+        help="Target bucket id <namespace>/<name> (default: lysandre/transformers-agentic-use).",
+    )
+    syp.add_argument("--push", action="store_true", help="Upload results/ + traces/ to the bucket.")
+    syp.add_argument("--pull", action="store_true", help="Download results/ + traces/ from the bucket.")
+    syp.add_argument("--public", action="store_true", help="Create the bucket as public (default: private).")
+    syp.add_argument(
+        "--delete",
+        action="store_true",
+        help="Also remove files on the receiving side that no longer exist on the sending side "
+        "(rsync --delete semantics). Off by default (sync only adds/updates).",
+    )
+    syp.set_defaults(func=_cmd_sync)
 
     return p
 
