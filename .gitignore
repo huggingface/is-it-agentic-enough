@@ -6,6 +6,7 @@
 configs/
 workspaces/
 results/
+traces/
 
 # Build / Python
 dist/

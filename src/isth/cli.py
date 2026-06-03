@@ -21,14 +21,14 @@ def _cmd_setup(args: argparse.Namespace) -> int:
 def _cmd_run(args: argparse.Namespace) -> int:
     from .compare import expand_refs
     from .log import log
-    from .paths import results_dir
+    from .paths import results_dir, results_label
     from .run_task import VARIANTS, run
     from .setup_commit import resolve_sha
 
     refs = expand_refs([args.ref])
     variants = args.variants or list(VARIANTS)
     total = len(refs) * len(variants)
-    rdir = results_dir(args.model)
+    rdir = results_dir(results_label(args.runner, args.provider, args.model))
     done = 0
     for ref in refs:
         short = resolve_sha(ref)[:10] if len(ref) < 10 else ref[:10]
@@ -47,6 +47,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     args.run_index,
                     model=args.model,
                     max_tool_calls=args.max_tool_calls,
+                    runner=args.runner,
+                    provider=args.provider,
+                    keep_sessions=args.keep_sessions,
                 )
             except SystemExit as e:
                 # e.g. "skill not available for <sha>" — don't abort the loop
@@ -66,28 +69,37 @@ def _cmd_suite(args: argparse.Namespace) -> int:
         model=args.model,
         max_tool_calls=args.max_tool_calls,
         live=not args.no_live,
+        runner=args.runner,
+        provider=args.provider,
+        keep_sessions=args.keep_sessions,
     )
     return 0
 
 
 def _cmd_analyze(args: argparse.Namespace) -> int:
     from .analyze import analyze
+    from .paths import results_label
 
-    print(analyze(args.sha, args.task, model=args.model))
+    label = results_label(args.runner, args.provider, args.model)
+    print(analyze(args.sha, args.task, model=label))
     return 0
 
 
 def _cmd_compare(args: argparse.Namespace) -> int:
     from .compare import compare
+    from .paths import results_label
 
-    print(compare(args.refs, model=args.model))
+    label = results_label(args.runner, args.provider, args.model)
+    print(compare(args.refs, model=label))
     return 0
 
 
 def _cmd_explain(args: argparse.Namespace) -> int:
     from .explain import explain
+    from .paths import results_label
 
-    explain(args.refs, args.variant, args.task, model=args.model)
+    label = results_label(args.runner, args.provider, args.model)
+    explain(args.refs, args.variant, args.task, model=label)
     return 0
 
 
@@ -104,16 +116,18 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     from .compare import compare, expand_refs
     from .dashboard import Dashboard, stderr_is_tty
     from .log import get_console, log
-    from .paths import results_dir
+    from .paths import results_dir, results_label
     from .run_task import VARIANTS, load_tasks, run
     from .setup_commit import setup
+
+    label = results_label(args.runner, args.provider, args.model)
 
     refs = expand_refs(args.spec if isinstance(args.spec, list) else [args.spec])
     if len(refs) < 2:
         print("diff needs a spec with at least two refs (e.g. ref1..ref2)", file=sys.stderr)
         return 2
 
-    tag = f" [{args.model}]" if args.model else ""
+    tag = f" [{args.runner}:{args.model}]" if args.model else f" [{args.runner}]"
     log(f"diff{tag}: {' → '.join(refs)}")
 
     # Ensure each ref is set up before the first run touches it (and record which
@@ -146,7 +160,7 @@ def _cmd_diff(args: argparse.Namespace) -> int:
                         continue
                     plan.append((ref, variant, tid, run_idx))
 
-    rdir = results_dir(args.model)
+    rdir = results_dir(label)
     total = len(plan)
     enabled = (not args.no_live) and stderr_is_tty()
     title = (
@@ -185,6 +199,9 @@ def _cmd_diff(args: argparse.Namespace) -> int:
                     run_idx,
                     model=args.model,
                     max_tool_calls=args.max_tool_calls,
+                    runner=args.runner,
+                    provider=args.provider,
+                    keep_sessions=args.keep_sessions,
                 )
             except Exception as e:  # noqa: BLE001
                 log(f"  ! failed: {e}")
@@ -196,8 +213,16 @@ def _cmd_diff(args: argparse.Namespace) -> int:
             else:
                 dash.mark_done(ref, variant, tid, run_idx, meta)
 
-    print(compare(refs, model=args.model))
+    print(compare(refs, model=label))
     return 0
+
+
+def _cmd_upload(args: argparse.Namespace) -> int:
+    from .paths import results_label
+    from .upload import upload
+
+    label = results_label(args.runner, args.provider, args.model)
+    return upload(args.repo, label, push=args.push, private=not args.public)
 
 
 def _cmd_tasks(args: argparse.Namespace) -> int:  # noqa: ARG001
@@ -217,6 +242,35 @@ _MODEL_HELP = (
 
 def _add_model_flag(sp: argparse.ArgumentParser) -> None:
     sp.add_argument("--model", default=None, help=_MODEL_HELP)
+
+
+_RUNNER_HELP = (
+    "Coding agent that drives each run. `claude` (default) shells out to the "
+    "`claude` CLI; `pi` shells out to the `pi` CLI, which can serve any model "
+    "through Hugging Face inference providers (see --provider). Results for "
+    "non-claude runners are namespaced under results/<runner>/<provider>/<model>/."
+)
+
+_PROVIDER_HELP = (
+    "Model provider for the `pi` runner (e.g. `huggingface`, `anthropic`, "
+    "`openai`). Defaults to `huggingface`. Ignored by the `claude` runner."
+)
+
+
+def _add_runner_flags(sp: argparse.ArgumentParser) -> None:
+    sp.add_argument("--runner", default="claude", choices=["claude", "pi"], help=_RUNNER_HELP)
+    sp.add_argument("--provider", default="huggingface", help=_PROVIDER_HELP)
+
+
+_KEEP_SESSIONS_HELP = (
+    "Persist each run's native agent session file (Claude Code / Pi) under "
+    "traces/<label>/ so it can be uploaded to the Hugging Face Hub with "
+    "`isth upload`. Off by default (runs stay ephemeral)."
+)
+
+
+def _add_keep_sessions_flag(sp: argparse.ArgumentParser) -> None:
+    sp.add_argument("--keep-sessions", action="store_true", help=_KEEP_SESSIONS_HELP)
 
 
 _VERBOSE_HELP = "Emit per-tool-call events from each run (default is run-level summaries only)."
@@ -286,6 +340,8 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("run_index", type=int)
     rp.add_argument("variants", nargs="*", default=None, choices=["bare", "clone", "skill"])
     _add_model_flag(rp)
+    _add_runner_flags(rp)
+    _add_keep_sessions_flag(rp)
     _add_verbose_flag(rp)
     _add_force_rerun_flag(rp)
     _add_max_tool_calls_flag(rp)
@@ -297,6 +353,8 @@ def build_parser() -> argparse.ArgumentParser:
     suite.add_argument("--tasks", nargs="*", default=None)
     suite.add_argument("--variants", nargs="*", default=None, choices=["bare", "clone", "skill"])
     _add_model_flag(suite)
+    _add_runner_flags(suite)
+    _add_keep_sessions_flag(suite)
     _add_verbose_flag(suite)
     _add_force_rerun_flag(suite)
     _add_max_tool_calls_flag(suite)
@@ -307,6 +365,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("sha", help="Short SHA (first 10 chars).")
     ap.add_argument("task", nargs="?", default=None)
     _add_model_flag(ap)
+    _add_runner_flags(ap)
     ap.set_defaults(func=_cmd_analyze)
 
     cp = sub.add_parser(
@@ -321,6 +380,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cp.add_argument("refs", nargs="+", help="Refs or ref-range (e.g. `A..B` or `A B C`).")
     _add_model_flag(cp)
+    _add_runner_flags(cp)
     cp.set_defaults(func=_cmd_compare)
 
     dp = sub.add_parser(
@@ -341,6 +401,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_force_rerun_flag(dp)
     _add_max_tool_calls_flag(dp)
     _add_no_live_flag(dp)
+    _add_runner_flags(dp)
+    _add_keep_sessions_flag(dp)
     dp.set_defaults(func=_cmd_diff)
 
     ep = sub.add_parser(
@@ -360,10 +422,29 @@ def build_parser() -> argparse.ArgumentParser:
         "refs", nargs="+", help="Refs or ref-range (e.g. `A..B` or `A B C`)."
     )
     _add_model_flag(ep)
+    _add_runner_flags(ep)
     ep.set_defaults(func=_cmd_explain)
 
     tp = sub.add_parser("tasks", help="List the available task ids.")
     tp.set_defaults(func=_cmd_tasks)
+
+    up = sub.add_parser(
+        "upload",
+        help="Upload captured native agent traces to a Hugging Face Hub dataset.",
+        description=(
+            "Package the native session files captured under traces/<label>/ "
+            "(produced by runs with --keep-sessions) into a dataset directory "
+            "with a `traces`-tagged card, and upload via the `hf` CLI. "
+            "DRY-RUN by default — nothing is pushed unless you pass --push. "
+            "Datasets are created private unless you pass --public."
+        ),
+    )
+    up.add_argument("repo", help="Target dataset repo, e.g. `username/transformers-agent-traces`.")
+    _add_model_flag(up)
+    _add_runner_flags(up)
+    up.add_argument("--push", action="store_true", help="Actually upload (otherwise dry-run).")
+    up.add_argument("--public", action="store_true", help="Create the dataset as public (default: private).")
+    up.set_defaults(func=_cmd_upload)
 
     return p
 

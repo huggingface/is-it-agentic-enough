@@ -42,6 +42,56 @@ lands next to cwd; override via `ISTH_DATA_DIR`.
 Each `(commit × variant × task)` is run N times (default 3) to smooth
 model non-determinism.
 
+## Runners: Claude Code or any model via Pi + HF inference providers
+
+By default the harness drives **Claude Code** (the `claude` CLI). With
+`--runner pi` it instead drives **[Pi](https://github.com/badlogic/pi-mono)**
+(the `pi` CLI), which can serve *any* model through **Hugging Face inference
+providers** (and other providers Pi knows). All three variants work for both
+runners — `bare`/`clone` rely on `cwd`-based discovery, and the `skill` variant
+reuses the *same* `SKILL.md` (both agents implement the
+[Agent Skills standard](https://agentskills.io/specification); Claude loads it
+via `--plugin-dir`, Pi via `--skill`).
+
+```bash
+# Any HF-served model. HF_TOKEN is used only for Pi's own model calls; it is
+# stripped from the agent's task environment so model downloads stay anonymous
+# and comparable to the Claude runs.
+export HF_TOKEN=hf_...
+isth diff A..B --runner pi --provider huggingface \
+  --model Qwen/Qwen3-Coder-480B-A35B-Instruct > progress.md
+```
+
+Pi's native event stream is normalized to Claude Code's schema at write time, so
+the analysis/report commands (`analyze`/`compare`/`explain`) work identically
+for both runners. Results are namespaced under
+`results/<runner>/<provider>/<model>/` so Pi/HF runs never collide with Claude
+runs (Claude keeps the historical `results/<model>/`). Pass the same
+`--runner`/`--provider`/`--model` to `analyze`/`compare`/`explain`/`upload` to
+read them back. Note: HF inference providers generally don't prompt-cache, so
+the `repeat` (cache-read) token column is ~0 for Pi runs — read `new`≈input and
+`out`=output. `isth explain` shows explicit `tokens in:/out:` per run and
+median in/out per cell.
+
+## Uploading traces to the Hugging Face Hub
+
+Runs executed with `--keep-sessions` persist each agent's **native** session
+file (Claude Code / Pi) under `traces/<runner>/<provider>/<model>/`. These are
+natively rendered by the Hub
+[agent-traces viewer](https://huggingface.co/docs/hub/agent-traces). `isth
+upload` packages them into a dataset (with a `traces`-tagged card) and uploads
+via the `hf` CLI:
+
+```bash
+isth suite <ref> --runner pi --provider huggingface --model <id> --keep-sessions
+isth upload <user>/<dataset> --runner pi --provider huggingface --model <id>          # DRY RUN
+isth upload <user>/<dataset> --runner pi --provider huggingface --model <id> --push   # actually upload
+```
+
+Uploads are **dry-run by default** (nothing is pushed without `--push`) and
+datasets are created **private** unless you pass `--public`. Review traces
+before publishing — they can contain prompts, command output, and local paths.
+
 ## Commands
 
 The full CLI reference — every subcommand, every flag, the typical
@@ -56,7 +106,11 @@ isth diff <ref1>..<ref2>[..<refN>]          # end-to-end: run + compare
 isth analyze <short-sha> [task_id]          # per-commit markdown report
 isth compare <refs...>                      # cross-ref diff table
 isth explain <variant> <task> <refs...>     # per-cell tool-call timeline
+isth upload <user>/<dataset>                # push captured traces to the Hub (dry-run by default)
 ```
+
+Add `--runner pi --provider huggingface --model <id>` to any run-producing
+command (`run`/`suite`/`diff`) to evaluate an HF-served model instead of Claude.
 
 Most-common path: `isth diff A..B > progress.md` builds caches, runs the
 suite on each ref, and prints the comparison report in one shot. While

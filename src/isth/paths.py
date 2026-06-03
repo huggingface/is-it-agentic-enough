@@ -48,6 +48,36 @@ def results_dir(model: str | None = None) -> Path:
     return d
 
 
+def results_label(runner: str | None, provider: str | None, model: str | None) -> str | None:
+    """Namespace key passed to :func:`results_dir`.
+
+    - ``claude`` (the default runner) keeps the historical scheme: ``model`` as
+      the label (so ``results/`` and ``results/<model>/`` are unchanged).
+    - other runners namespace under ``<runner>/<provider>/<model>`` so e.g. a
+      Pi/HF run never collides with a Claude run of a same-named model. The
+      label may contain ``/`` (incl. inside model ids); ``results_dir`` joins it
+      as a sub-path, and run filenames carry no model, so nesting is safe.
+    """
+    if (runner or "claude") == "claude":
+        return model
+    parts = [runner or "claude"]
+    if provider:
+        parts.append(provider)
+    if model:
+        parts.append(model)
+    return "/".join(parts)
+
+
+def traces_dir(label: str | None = None) -> Path:
+    """Directory where native agent session files are collected for Hub upload,
+    namespaced the same way as :func:`results_dir`."""
+    d = state_root() / "traces"
+    if label:
+        d = d / label
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def transformers_src() -> Path:
     override = os.environ.get("ISTH_TRANSFORMERS_SRC")
     if override:

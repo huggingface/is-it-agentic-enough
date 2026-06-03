@@ -14,9 +14,23 @@ runs from different Claude models don't collide; results without
 
 These appear on most run-producing subcommands:
 
-- `--model <name>` — passed through to `claude --model`. Results are
-  written under `results/<name>/`. Without it, the default Claude model
-  is used and results land in `results/`.
+- `--runner {claude,pi}` — which coding agent drives each run. `claude`
+  (default) shells out to the `claude` CLI; `pi` shells out to the `pi`
+  CLI, which can serve any model via Hugging Face inference providers.
+- `--provider <name>` — model provider for the `pi` runner (default
+  `huggingface`; e.g. `anthropic`, `openai`). Ignored by `claude`.
+- `--model <name>` — the model id. For `claude` it is passed through to
+  `claude --model` and results are written under `results/<name>/`
+  (or `results/` if omitted). For non-claude runners, results are
+  namespaced under `results/<runner>/<provider>/<model>/`. Pass the same
+  `--runner`/`--provider`/`--model` to `analyze`/`compare`/`explain`/
+  `upload` to read those results back.
+  - The `pi` runner uses `HF_TOKEN` only for its *own* model calls (via
+    `--api-key`); the token is stripped from the agent's task environment,
+    matching the Claude runs. Set `HF_TOKEN` before running.
+- `--keep-sessions` — persist each run's *native* agent session file under
+  `traces/<label>/` for later upload to the Hub (see `isth upload`). Off by
+  default (runs stay ephemeral). Recorded as `trace_path` in `meta.json`.
 - `-v` / `--verbose` — emit per-tool-call event lines from each run
   (default is run-level `▶` / `■` summaries only).
 - `--force-rerun` — re-execute cells whose `.jsonl` already exists
@@ -164,18 +178,46 @@ isth explain skill caption-image 59e4754341
 
 For each ref it prints, per run on disk:
 
-- a one-line header (✓/✗ match, elapsed, exit code, tool-call count, error count),
+- a one-line header (✓/✗ match, elapsed, exit code, tool-call count, error count, `tokens in:/out:`),
 - the full tool-call timeline with `❗` markers + first-line snippets on errored calls,
 - the final answer truncated, with a `[contains '...']` / `[missing '...']` flag against the task's expected substring,
 
 followed by a side-by-side metric diff (approach bucket, errors, median
-time, median tools, match rate) when ≥2 refs are given, and the list of
-`.jsonl` trace paths at the bottom for hand-off to an LLM (wrap in
-`BEGIN/END UNTRUSTED TRACE` markers per [SECURITY.md](./SECURITY.md)).
+time, median tools, median tokens in/out, match rate) when ≥2 refs are
+given, and the list of `.jsonl` trace paths at the bottom for hand-off to
+an LLM (wrap in `BEGIN/END UNTRUSTED TRACE` markers per
+[SECURITY.md](./SECURITY.md)).
 
 If you forget `--model` and the default `results/` dir is empty, it
 auto-detects the right namespace (or, if multiple namespaces have data,
 lists them so you can pick).
+
+## Trace upload
+
+### `isth upload <user>/<dataset>`
+
+Upload the native agent session files captured under `traces/<label>/`
+(produced by run-producing commands with `--keep-sessions`) to a Hugging
+Face Hub dataset, where they render in the
+[agent-traces viewer](https://huggingface.co/docs/hub/agent-traces). Takes
+the same `--runner`/`--provider`/`--model` flags to resolve the trace
+namespace.
+
+```bash
+# capture sessions while running …
+isth suite 59e4754341 --runner pi --provider huggingface --model <id> --keep-sessions
+# … then upload them
+isth upload me/transformers-agent-traces --runner pi --provider huggingface --model <id>          # DRY RUN
+isth upload me/transformers-agent-traces --runner pi --provider huggingface --model <id> --push   # upload
+```
+
+- **Dry-run by default.** Without `--push` it stages the files, writes a
+  `traces`-tagged dataset card, and prints the exact `hf upload` command —
+  but uploads nothing.
+- `--push` runs the upload (requires the `hf` CLI and `hf auth login`).
+- Datasets are created **private** unless you pass `--public`. Traces may
+  contain prompts, tool output, local paths, and secrets — review before
+  publishing.
 
 ## Workflows
 
