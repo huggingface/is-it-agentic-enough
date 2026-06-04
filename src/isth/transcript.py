@@ -51,6 +51,7 @@ def parse_transcript(path: Path) -> Transcript:
     """Walk a run's ``.jsonl`` and return its ordered tool steps + final answer."""
     tx = Transcript()
     by_id: dict[str, ToolStep] = {}
+    last_text: str | None = None
     try:
         f = path.open()
     except FileNotFoundError:
@@ -77,6 +78,8 @@ def parse_transcript(path: Path) -> Transcript:
                         tid = b.get("id")
                         if tid:
                             by_id[tid] = step
+                    elif b.get("type") == "text" and (b.get("text") or "").strip():
+                        last_text = b["text"]
             elif t == "user":
                 for b in e.get("message", {}).get("content", []) or []:
                     if b.get("type") == "tool_result":
@@ -87,4 +90,9 @@ def parse_transcript(path: Path) -> Transcript:
                             step.result = tool_result_content(b)
             elif t == "result":
                 tx.final = e.get("result") or ""
+    # Some runners (Pi) never emit a `result` event; their final answer is the
+    # last assistant text. Don't fall back for broken (in-flight) transcripts —
+    # a mid-run message isn't a final answer.
+    if tx.final is None and not tx.broken:
+        tx.final = last_text
     return tx

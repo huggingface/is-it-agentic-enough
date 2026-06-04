@@ -98,7 +98,21 @@ each task uses its own `runs:` (cheap tasks default to 5) or 3 if it has none.
 isth suite HEAD                                   # per-task runs: (or 3)
 isth suite HEAD --variants skill --tasks summarize-text caption-image
 isth suite HEAD --runs 5                          # force 5 for ALL tasks
+isth suite HEAD --runner pi --model <hf-id> --job # run it on HF Jobs instead
 ```
+
+**`--job` — run on HF Jobs.** Submits the suite as a detached
+[HF Job](https://huggingface.co/docs/huggingface_hub/guides/jobs) instead of
+executing locally. The job bootstraps uv + the `pi` CLI + clones of
+`transformers` and this repo, mounts the bucket read+write at `/bucket`
+(results land in it directly, no upload step), and seeds local `results/`
+from the bucket first so completed cells are skipped — resubmitting after an
+interruption resumes where it left off. Tune with `--flavor` (default
+`t4-small`), `--timeout` (default `4h`; HF's own default is 30m), `--image`
+(default `node:22-bookworm`; any apt-capable image works), `--bucket`.
+Requires `--runner pi` + `--model` (the `claude` CLI can't authenticate on
+Jobs) and passes your `HF_TOKEN` as the job secret. Track with
+`hf jobs ps` / `hf jobs logs <id>`; pull results with `isth report --pull`.
 
 Progress shows in the rich dashboard: a panel header, a counters line,
 and a table with rows = (task, variant) and one column for the ref.
@@ -257,6 +271,55 @@ isth sync --push --delete       # prune bucket files no longer present locally
 
 Requires the `hf` CLI (`huggingface_hub` with bucket support) and
 `hf auth login`.
+
+## Report
+
+### `isth report [refs...]`
+
+Generate a **self-contained static HTML report** over the runs under
+`results/` — a single `report/index.html`, organized **commit-first** so the
+top of the page answers "which commit is doing better?" at a glance:
+
+1. **Scoreboard** — one column per commit (date order), every metric as a row
+   (CLI adoption %, match %, errored-calls %, failed-runs %, median time,
+   median new/out tokens), best/worst commit highlighted green/red.
+2. **Cross-commit trend** — the selected metric across commits; one aggregate
+   line by default, with a "split lines by" selector for variant or
+   harness/model breakdowns.
+3. **Per-task heatmap** — task × **commit** grid colored by the selected
+   metric; clicking a cell drills into its runs: status/exit flags, tool-call
+   timeline pills (CLI highlighted, errors red with snippet tooltips),
+   final-answer snippet, trace pointer.
+4. **Distributions** — box plots (every run an individual point) for elapsed
+   time and new/repeat/out tokens, grouped by commit.
+5. **Model vs model** — secondary cut: the metric grouped by
+   `harness/model_id`, one bar per commit.
+
+Run records are embedded as JSON and charts render client-side, so the page
+stays interactive (filters for commits / models / variants / tasks) while
+being a plain static file. All parsing reuses the same code paths as
+`analyze`/`explain` — numbers always agree across the three views.
+
+```bash
+isth report                     # all commits on disk → report/index.html
+isth report 0f0036c888          # restrict to specific refs / ranges
+isth report --pull --open       # bucket → local → report → browser
+isth report --push              # publish as a private static HF Space
+```
+
+- `--pull` — run the bucket pull (`isth sync --pull`) first.
+- `--push` — upload `report/` as a **static HF Space** (default id
+  `lysandre/transformers-agentic-use-report`, override with `--space`);
+  otherwise the upload plan is only printed. Spaces are **private** unless
+  `--public`. The `report/` dir is complete Space content (`index.html`,
+  `plotly.min.js`, `README.md` with `sdk: static`), so you can equally add
+  the Space as a git remote and push it manually.
+- `--bucket` — bucket id used by `--pull` and for trace pointers in the
+  drill-down (default `lysandre/transformers-agentic-use`).
+- `--open` — open the generated report in your browser.
+- `plotly.min.js` is fetched once (pinned version) and cached next to the
+  report so the published Space is self-contained; if the fetch fails the
+  page falls back to the CDN.
 
 ## Workflows
 
