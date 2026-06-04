@@ -62,6 +62,27 @@ isth diff A..B --runner pi \
   --model Qwen/Qwen3-Coder-480B-A35B-Instruct > progress.md
 ```
 
+### Running suites on HF Jobs
+
+Add `--job` to run the suite on Hugging Face infrastructure instead of your
+machine ([HF Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)):
+
+```bash
+isth suite <ref> --runner pi --model Qwen/Qwen3-Coder-480B-A35B-Instruct --job
+# → detached job; track with `hf jobs ps` / `hf jobs logs <id>`,
+#   then `isth report --pull` to bring the new runs into the dashboard
+```
+
+The job bootstraps everything itself (uv, the `pi` CLI, clones of
+`transformers` and this repo), mounts the bucket **read+write** at `/bucket`
+so results land in it directly, and seeds its local `results/` from the
+bucket first so already-completed cells are skipped — interrupted jobs are
+resumable by resubmitting. `--flavor` (default `t4-small`), `--timeout`
+(default `4h` — HF's own default is only 30m), `--image`, and `--bucket`
+tune the job. Only the `pi` runner works on Jobs (the `claude` CLI needs
+interactive auth; `pi` just needs the `HF_TOKEN` secret, which the harness
+strips from the agent's task environment as usual).
+
 Pi's native event stream is normalized to Claude Code's schema at write time, so
 the analysis/report commands (`analyze`/`compare`/`explain`) work identically
 for both runners. Results are laid out by commit first:
@@ -110,6 +131,7 @@ isth compare <refs...>                      # cross-ref diff table
 isth explain <variant> <task> <refs...>     # per-cell tool-call timeline
 isth upload <user>/<dataset>                # push captured traces to the Hub (dry-run by default)
 isth sync [<namespace>/<bucket>]            # mirror results/ + traces/ + manifest with the HF bucket (dry-run)
+isth report [refs...]                       # static HTML report (charts + drill-down); --push → HF Space
 ```
 
 Add `--runner pi --model <id>` to any run-producing
@@ -199,6 +221,26 @@ prefixes in the bucket (`hf://buckets/<id>/results`, `.../traces`).
 commit-first, syncing different commits (or different machines) never
 overwrites unrelated runs — each `--push` just adds/refreshes that commit's
 subtree (unless you pass `--delete`).
+
+### Visualizing: `isth report`
+
+`isth report` distills every run under `results/` into a **single static
+HTML page** with interactive Plotly charts — cross-commit trends, model-vs-model
+comparison, a per-task heatmap with click-through drill-down to individual runs
+(tool-call timeline, errors, final answer, trace pointer), and token/duration
+distributions. The run records are embedded as JSON and rendered client-side,
+so the page keeps its filters (commit / model / variant / task) with no server.
+
+```bash
+isth report                     # write report/index.html + print the path
+isth report --pull --open       # refresh from the bucket, then open in a browser
+isth report --push              # publish as a private static HF Space
+```
+
+The `report/` directory (`index.html` + `plotly.min.js` + `README.md` with
+`sdk: static`) is complete Space content — `--push` uploads it via the `hf`
+CLI, or add the Space as a git remote and push it yourself. Like
+`sync`/`upload`, nothing is published without an explicit `--push`.
 
 ### What `compare` shows on top of that
 

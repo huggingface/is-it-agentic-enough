@@ -55,6 +55,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_suite(args: argparse.Namespace) -> int:
+    if args.job:
+        from .job import submit_suite
+
+        return submit_suite(args)
+
     from .run_suite import run_suite
 
     run_suite(
@@ -212,6 +217,22 @@ def _cmd_upload(args: argparse.Namespace) -> int:
     return upload(args.repo, label, push=args.push, private=not args.public)
 
 
+def _cmd_report(args: argparse.Namespace) -> int:
+    from .compare import expand_refs
+    from .report import report
+
+    refs = expand_refs(args.refs) if args.refs else None
+    return report(
+        refs,
+        pull=args.pull,
+        push=args.push,
+        space_id=args.space,
+        public=args.public,
+        open_browser=args.open,
+        bucket=args.bucket,
+    )
+
+
 def _cmd_sync(args: argparse.Namespace) -> int:
     from .sync import sync
 
@@ -351,6 +372,27 @@ def build_parser() -> argparse.ArgumentParser:
     _add_force_rerun_flag(suite)
     _add_max_tool_calls_flag(suite)
     _add_no_live_flag(suite)
+    job = suite.add_argument_group(
+        "HF Jobs",
+        "Submit the suite to Hugging Face Jobs instead of running locally. "
+        "Requires --runner pi and --model; the bucket is volume-mounted so "
+        "results land in it directly, and completed cells already in the "
+        "bucket are skipped (resumable).",
+    )
+    job.add_argument(
+        "--job",
+        action="store_true",
+        help="Submit this suite as a detached HF Job (`hf jobs run`) instead of running locally.",
+    )
+    job.add_argument("--flavor", default="t4-small", help="Job hardware flavor (see `hf jobs hardware`). Default: t4-small.")
+    job.add_argument("--timeout", default="4h", help="Job max duration (e.g. 90m, 4h). HF's default is only 30m. Default: 4h.")
+    job.add_argument("--image", default="node:22-bookworm", help="Docker image (needs apt or preinstalled git/node). Default: node:22-bookworm.")
+    job.add_argument(
+        "--bucket",
+        default="lysandre/transformers-agentic-use",
+        help="Bucket mounted read+write at /bucket for seeding + storing results "
+        "(default: lysandre/transformers-agentic-use).",
+    )
     suite.set_defaults(func=_cmd_suite)
 
     ap = sub.add_parser("analyze", help="Per-sha markdown report.")
@@ -466,6 +508,43 @@ def build_parser() -> argparse.ArgumentParser:
         "(rsync --delete semantics). Off by default (sync only adds/updates).",
     )
     syp.set_defaults(func=_cmd_sync)
+
+    rep = sub.add_parser(
+        "report",
+        help="Generate a self-contained static HTML report (charts + run drill-down).",
+        description=(
+            "Walk results/ and emit report/index.html — a single static page with "
+            "interactive Plotly charts: cross-commit trends, model-vs-model "
+            "comparison, a per-task heatmap with click-through run drill-down, and "
+            "token/duration distributions. The run data is embedded as JSON and "
+            "rendered client-side, so the page stays fully interactive with no "
+            "server. The report/ dir (index.html + plotly.min.js + README.md with "
+            "`sdk: static`) is complete HF static-Space content: publish with "
+            "--push, or add the Space as a git remote and push it yourself. "
+            "No flags = write locally and print the path."
+        ),
+    )
+    rep.add_argument(
+        "refs",
+        nargs="*",
+        default=None,
+        help="Optional refs / ranges (e.g. `A..B`) to include. Default: every commit under results/.",
+    )
+    rep.add_argument("--pull", action="store_true", help="Sync results/ down from the bucket first.")
+    rep.add_argument("--push", action="store_true", help="Upload the report as a static HF Space (otherwise just print the plan).")
+    rep.add_argument(
+        "--space",
+        default="lysandre/transformers-agentic-use-report",
+        help="Target Space id (default: lysandre/transformers-agentic-use-report).",
+    )
+    rep.add_argument(
+        "--bucket",
+        default="lysandre/transformers-agentic-use",
+        help="Bucket used by --pull and for trace links (default: lysandre/transformers-agentic-use).",
+    )
+    rep.add_argument("--public", action="store_true", help="Create the Space as public (default: private).")
+    rep.add_argument("--open", action="store_true", help="Open the generated report in a browser.")
+    rep.set_defaults(func=_cmd_report)
 
     return p
 
