@@ -34,36 +34,38 @@ DEFAULT_BUCKET = "lysandre/transformers-agentic-use"
 ISTH_GIT = "https://github.com/huggingface/is-transformers-agentic-enough"
 TRANSFORMERS_GIT = "https://github.com/huggingface/transformers"
 
-# NOTE: kept .replace()-templated (not str.format) — the script itself uses
-# `${...}` shell syntax that would trip format().
-_BOOTSTRAP = """set -euo pipefail
-# toolchain: git/node/npm (installed only if the image lacks them), uv, the pi CLI
-command -v npm >/dev/null || (apt-get update -qq && apt-get install -y -qq git curl nodejs npm)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
-npm i -g @mariozechner/pi-coding-agent
-
-git clone --filter=blob:none __TRANSFORMERS_GIT__ /work/transformers
-git clone __ISTH_GIT__ /work/isth
-cd /work/isth
-uv venv --python 3.13 .env
-uv pip install --python .env/bin/python -e .
-
-export ISTH_TRANSFORMERS_SRC=/work/transformers
-export ISTH_DATA_DIR=/work/state
-# resumability: seed local state from the bucket so completed cells are skipped
-mkdir -p /work/state/results /work/state/traces /bucket/results /bucket/traces
-cp -a /bucket/results/. /work/state/results/ 2>/dev/null || true
-
-status=0
-__ISTH_CMD__ || status=$?
-
-# land everything back in the mounted bucket (merge by commit dir), even if
-# the suite was interrupted — completed runs are still worth keeping
-cp -a /work/state/results/. /bucket/results/ 2>/dev/null || true
-cp -a /work/state/traces/.  /bucket/traces/  2>/dev/null || true
-exit "$status"
-"""
+# The bootstrap is submitted as ONE argv token after a single `-c`. The Jobs
+# backend does not exec the command array verbatim: a combined `-lc` flag plus
+# a multiline script reached bash as `bash <script-as-filename>` (no -c). The
+# documented-working shape is `<exe> -c "<one-liner>"`, so the steps below are
+# joined with ` ; ` into a single line — which is also why there are no `#`
+# comments inside the steps (a comment would swallow the rest of the line).
+_BOOTSTRAP_STEPS = [
+    "set -euo pipefail",
+    # toolchain: git/node/npm only if the image lacks them, then uv + the pi CLI
+    "command -v npm >/dev/null || (apt-get update -qq && apt-get install -y -qq git curl nodejs npm)",
+    "curl -LsSf https://astral.sh/uv/install.sh | sh",
+    'export PATH="$HOME/.local/bin:$PATH"',
+    "npm i -g @mariozechner/pi-coding-agent",
+    "git clone --filter=blob:none __TRANSFORMERS_GIT__ /work/transformers",
+    "git clone __ISTH_GIT__ /work/isth",
+    "cd /work/isth",
+    "uv venv --python 3.13 .env",
+    "uv pip install --python .env/bin/python -e .",
+    "export ISTH_TRANSFORMERS_SRC=/work/transformers",
+    "export ISTH_DATA_DIR=/work/state",
+    # resumability: seed local state from the bucket so completed cells are skipped
+    "mkdir -p /work/state/results /work/state/traces /bucket/results /bucket/traces",
+    "cp -a /bucket/results/. /work/state/results/ 2>/dev/null || true",
+    "status=0",
+    "__ISTH_CMD__ || status=$?",
+    # land everything back in the mounted bucket (merge by commit dir), even if
+    # the suite was interrupted — completed runs are still worth keeping
+    "cp -a /work/state/results/. /bucket/results/ 2>/dev/null || true",
+    "cp -a /work/state/traces/. /bucket/traces/ 2>/dev/null || true",
+    'exit "$status"',
+]
+_BOOTSTRAP = " ; ".join(_BOOTSTRAP_STEPS)
 
 
 def build_suite_cmd(args) -> list[str]:
@@ -107,7 +109,7 @@ def build_job_invocation(args) -> list[str]:
         "--secrets", "HF_TOKEN",
         "--volume", f"hf://buckets/{args.bucket}:/bucket",
         args.image,
-        "bash", "-lc", script,
+        "bash", "-c", script,
     ]
 
 
