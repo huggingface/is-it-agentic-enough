@@ -152,10 +152,22 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g,
 
 // Ref-kind badge for a commit entry: what it was tested as.
 const KIND_LABEL = { branch: 'branch', tag: 'release', commit: 'commit' };
+const KIND_COLOR = { branch: '#3730a3', tag: '#166534' };
 const refBadge = c => (c.kind === 'branch' || c.kind === 'tag')
   ? `<span class="badge ${c.kind}">${KIND_LABEL[c.kind]}</span>` : '';
 // Display name: the ref the user asked for when there is one, else the sha.
 const refName = c => c.ref || c.sha;
+
+// Unique display name per commit: if two selected commits were both tested as
+// e.g. `main` (at different points in time), disambiguate with the short sha.
+const NAME_COUNT = {};
+DATA.commits.forEach(c => { const n = refName(c); NAME_COUNT[n] = (NAME_COUNT[n] || 0) + 1; });
+const dispName = c => NAME_COUNT[refName(c)] > 1 ? `${refName(c)}@${c.sha.slice(0, 5)}` : refName(c);
+// Two-line axis tick: bold ref name over a color-coded kind label (plotly
+// tick text supports this limited HTML subset). Plain commits show the sha.
+const tickFor = c => (c.kind === 'branch' || c.kind === 'tag')
+  ? `<b>${esc(dispName(c))}</b><br><span style="color:${KIND_COLOR[c.kind]}">${KIND_LABEL[c.kind]}</span>`
+  : esc(c.sha);
 
 const sum = (xs, f) => xs.reduce((a, x) => a + f(x), 0);
 function median(xs) {
@@ -333,6 +345,7 @@ function renderTrend() {
                    `${state.metric}: %{y}<br>n=%{customdata[2]}<extra>${g.name}</extra>`,
   }));
   Plotly.react('trend', traces, LAYOUT({
+    xaxis: { tickvals: commits.map(c => c.sha), ticktext: commits.map(tickFor) },
     yaxis: { title: state.metric, rangemode: 'tozero' },
     showlegend: state.split !== 'none',
   }), CFG);
@@ -354,7 +367,8 @@ function renderHeatmap() {
     customdata: counts,
     hovertemplate: `%{y} @ %{x}<br>${state.metric}: %{z}<br>n=%{customdata} — click to drill<extra></extra>`,
     colorbar: { thickness: 12 },
-  }], LAYOUT({ height: 110 + 34 * tasks.length, margin: { l: 220, r: 20, t: 10, b: 40 },
+  }], LAYOUT({ height: 110 + 34 * tasks.length, margin: { l: 220, r: 20, t: 10, b: 55 },
+               xaxis: { tickvals: commits.map(c => c.sha), ticktext: commits.map(tickFor) },
                yaxis: { autorange: 'reversed' } }), CFG);
   if (!heatmapClickBound) {
     document.getElementById('heatmap').on('plotly_click', ev => {
@@ -378,7 +392,7 @@ function renderDists() {
     const traces = commits.map(c => {
       const cell = rs.filter(r => r.sha === c.sha);
       return {
-        type: 'box', name: c.sha, y: cell.map(get),
+        type: 'box', name: dispName(c), y: cell.map(get),
         boxpoints: 'all', jitter: 0.45, pointpos: 0,
         marker: { size: 3.5, color: CCOLOR[c.sha] }, line: { color: CCOLOR[c.sha] },
         text: cell.map(r => `${r.variant} ${r.task} run${r.run}`),
@@ -401,10 +415,10 @@ function renderModels() {
   const nss = DATA.namespaces.filter(n => state.ns.has(n));
   const m = METRICS[state.metric];
   const traces = selCommits().map(c => ({
-    type: 'bar', name: c.sha, marker: { color: CCOLOR[c.sha] },
+    type: 'bar', name: dispName(c), marker: { color: CCOLOR[c.sha] },
     x: nss, y: nss.map(n => r1(m.fn(rs.filter(r => r.ns === n && r.sha === c.sha)))),
     customdata: nss.map(n => rs.filter(r => r.ns === n && r.sha === c.sha).length),
-    hovertemplate: `%{x}<br>${state.metric}: %{y}<br>n=%{customdata}<extra>${c.sha}</extra>`,
+    hovertemplate: `%{x}<br>${state.metric}: %{y}<br>n=%{customdata}<extra>${dispName(c)}</extra>`,
   }));
   Plotly.react('models', traces, LAYOUT({ barmode: 'group',
     yaxis: { title: state.metric, rangemode: 'tozero' } }), CFG);
@@ -460,8 +474,15 @@ function renderAll() {
 }
 
 (function init() {
+  const kinds = { branch: 0, tag: 0, commit: 0 };
+  DATA.commits.forEach(c => kinds[c.kind in kinds ? c.kind : 'commit']++);
+  const kindBits = [
+    kinds.branch && `${kinds.branch} branch${kinds.branch > 1 ? 'es' : ''}`,
+    kinds.tag && `${kinds.tag} release${kinds.tag > 1 ? 's' : ''}`,
+    kinds.commit && `${kinds.commit} plain commit${kinds.commit > 1 ? 's' : ''}`,
+  ].filter(Boolean).join(', ');
   document.getElementById('meta').textContent =
-    `${DATA.runs.length} runs · ${DATA.commits.length} commit(s) · ` +
+    `${DATA.runs.length} runs · ${DATA.commits.length} commit(s) (${kindBits}) · ` +
     `${DATA.namespaces.length} harness/model namespace(s) · generated ${DATA.generated_at} · ` +
     `bucket: ${DATA.bucket}`;
   document.getElementById('foot').textContent =
