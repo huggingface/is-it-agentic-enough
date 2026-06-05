@@ -92,7 +92,12 @@ exists unless `--force-rerun` is set.
 Run the full task suite for **one** commit (3 variants × 8 tasks). `<ref>`
 can be a SHA, a branch name, or a tag (`main`, `v4.56.0`, …) — what it was
 tested as is recorded in `results/<commit>/ref.json` and badged in the
-report. The number of runs per cell is resolved per task: an explicit `--runs N`
+report. `--name "kv-cache rewrite"` adds an experiment title to the same
+marker: it becomes the commit's display name everywhere in the report
+(scoreboard, axes, chips, drill-down), with the ref/sha demoted to the
+detail line and the branch/release badge kept. Re-running with `--name`
+updates the title; runs without it keep the existing one. The number of
+runs per cell is resolved per task: an explicit `--runs N`
 **overrides every** per-task `runs:` in `tasks.yaml`; without `--runs`,
 each task uses its own `runs:` (cheap tasks default to 5) or 3 if it has none.
 

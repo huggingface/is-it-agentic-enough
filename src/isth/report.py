@@ -70,19 +70,21 @@ isth report --pull --push
 # --------- collection ---------
 
 
-def _ref_label(root, sha: str) -> tuple[str | None, str]:
-    """``(ref_name_or_None, kind)`` for a commit, ``kind`` ∈ branch|tag|commit.
+def _ref_label(root, sha: str) -> tuple[str | None, str | None, str]:
+    """``(experiment_name, ref_name, kind)`` for a commit, ``kind`` ∈ branch|tag|commit.
 
     Prefers the ``ref.json`` marker written at run time (what the user actually
-    asked to test). For older data without a marker, falls back to a release
-    tag pointing at the commit; otherwise it's a plain commit.
+    asked to test, plus any ``--name`` title). For older data without a marker,
+    falls back to a release tag pointing at the commit; otherwise it's a plain
+    commit.
     """
     info = read_meta(root / sha / "ref.json") or {}
+    name = info.get("name")
     kind = info.get("kind")
     if kind in ("branch", "tag"):
-        return info.get("ref"), kind
+        return name, info.get("ref"), kind
     if kind == "commit":
-        return None, "commit"
+        return name, None, "commit"
     # No marker (pre-feature data): is a tag pointing at this commit?
     try:
         from .paths import transformers_src
@@ -94,10 +96,10 @@ def _ref_label(root, sha: str) -> tuple[str | None, str]:
             stderr=subprocess.DEVNULL,
         ).strip()
         if out:
-            return out.splitlines()[0], "tag"
+            return name, out.splitlines()[0], "tag"
     except (Exception, SystemExit):
         pass
-    return None, "commit"
+    return name, None, "commit"
 
 
 def _step_record(step) -> dict:
@@ -183,9 +185,9 @@ def collect_records(refs: list[str] | None = None, bucket: str = DEFAULT_BUCKET)
         subject, date = meta.get("subject"), meta.get("date")
         if not subject or subject == "?":
             subject, date = _git_meta(sha)
-        ref, kind = _ref_label(root, sha)
+        name, ref, kind = _ref_label(root, sha)
         commits.append({"sha": sha, "subject": subject, "date": date or "?",
-                        "ref": ref, "kind": kind})
+                        "name": name, "ref": ref, "kind": kind})
     commits.sort(key=lambda c: (c["date"], c["sha"]))
 
     tasks_meta = [

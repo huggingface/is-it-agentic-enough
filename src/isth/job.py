@@ -115,6 +115,8 @@ def build_suite_cmd(args) -> list[str]:
     """Reconstruct the `isth suite` command line the job should execute."""
     cmd = [".env/bin/isth", "suite", args.ref, "--runner", "pi",
            "--model", args.model, "--no-live"]
+    if args.name:
+        cmd += ["--name", args.name]
     if args.runs is not None:
         cmd += ["--runs", str(args.runs)]
     if args.tasks:

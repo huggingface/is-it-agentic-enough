@@ -21,6 +21,7 @@ def run_suite(
     max_tool_calls: int = 50,
     live: bool = True,
     runner: str = "claude",
+    name: str | None = None,
 ) -> None:
     info = setup(ref)
     short = info["short"]
@@ -86,7 +87,7 @@ def run_suite(
             try:
                 run(
                     ref, variant, tid, run_idx,
-                    model=model, max_tool_calls=max_tool_calls, runner=runner,
+                    model=model, max_tool_calls=max_tool_calls, runner=runner, name=name,
                 )
             except Exception as e:  # noqa: BLE001
                 log(f"  ! failed: {e}")

@@ -72,6 +72,7 @@ def _cmd_suite(args: argparse.Namespace) -> int:
         max_tool_calls=args.max_tool_calls,
         live=not args.no_live,
         runner=args.runner,
+        name=args.name,
     )
     return 0
 
@@ -363,6 +364,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     suite = sub.add_parser("suite", help="Run the full task suite for a ref.")
     suite.add_argument("ref")
+    suite.add_argument(
+        "--name",
+        default=None,
+        help="Experiment title for this commit (e.g. \"kv-cache rewrite\"). Stored in "
+        "results/<commit>/ref.json and used as the commit's display name throughout the "
+        "report (the branch/release badge is kept). Re-running with --name updates it.",
+    )
     suite.add_argument("--runs", type=int, default=None, help=_RUNS_HELP)
     suite.add_argument("--tasks", nargs="*", default=None)
     suite.add_argument("--variants", nargs="*", default=None, choices=["bare", "clone", "skill"])

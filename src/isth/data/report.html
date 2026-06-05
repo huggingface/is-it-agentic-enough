@@ -155,19 +155,27 @@ const KIND_LABEL = { branch: 'branch', tag: 'release', commit: 'commit' };
 const KIND_COLOR = { branch: '#3730a3', tag: '#166534' };
 const refBadge = c => (c.kind === 'branch' || c.kind === 'tag')
   ? `<span class="badge ${c.kind}">${KIND_LABEL[c.kind]}</span>` : '';
-// Display name: the ref the user asked for when there is one, else the sha.
-const refName = c => c.ref || c.sha;
+// Display name precedence: explicit --name title, then the ref the user asked
+// for (branch/tag), then the sha.
+const refName = c => c.name || c.ref || c.sha;
+// Secondary identifiers worth showing under a display name.
+const subBits = c => [c.name && c.ref, (c.name || c.ref) && c.sha].filter(Boolean);
 
 // Unique display name per commit: if two selected commits were both tested as
 // e.g. `main` (at different points in time), disambiguate with the short sha.
 const NAME_COUNT = {};
 DATA.commits.forEach(c => { const n = refName(c); NAME_COUNT[n] = (NAME_COUNT[n] || 0) + 1; });
 const dispName = c => NAME_COUNT[refName(c)] > 1 ? `${refName(c)}@${c.sha.slice(0, 5)}` : refName(c);
-// Two-line axis tick: bold ref name over a color-coded kind label (plotly
-// tick text supports this limited HTML subset). Plain commits show the sha.
-const tickFor = c => (c.kind === 'branch' || c.kind === 'tag')
-  ? `<b>${esc(dispName(c))}</b><br><span style="color:${KIND_COLOR[c.kind]}">${KIND_LABEL[c.kind]}</span>`
-  : esc(c.sha);
+// Two-line axis tick: bold display name over a color-coded kind label (plotly
+// tick text supports this limited HTML subset). Named plain commits show the
+// sha as the second line; unlabeled commits stay a bare sha.
+const tickFor = c => {
+  if (c.kind === 'branch' || c.kind === 'tag')
+    return `<b>${esc(dispName(c))}</b><br><span style="color:${KIND_COLOR[c.kind]}">${KIND_LABEL[c.kind]}</span>`;
+  if (c.name)
+    return `<b>${esc(dispName(c))}</b><br>${esc(c.sha)}`;
+  return esc(c.sha);
+};
 
 const sum = (xs, f) => xs.reduce((a, x) => a + f(x), 0);
 function median(xs) {
@@ -284,7 +292,7 @@ function renderScoreboard() {
   const perCommit = commits.map(c => rs.filter(r => r.sha === c.sha));
   let html = '<table><thead><tr><th>metric</th>';
   for (const c of commits) {
-    const sub = (c.ref ? `${esc(c.sha)} · ` : '') + `${esc(c.date)} · ${esc(c.subject)}`;
+    const sub = [...subBits(c), c.date, c.subject].map(esc).join(' · ');
     html += `<th>${esc(refName(c))}${refBadge(c)}<span class="sub">${sub}</span></th>`;
   }
   html += '</tr></thead><tbody>';
@@ -460,9 +468,10 @@ function openDrill(task, sha) {
   const c = DATA.commits.find(c => c.sha === sha) || {};
   const exp = t.expected ? ` · expected: <code>${esc(t.expected)}</code>` : ' · no expected substring';
   const drill = document.getElementById('drill');
+  const sub = [...subBits(c), c.date || '', c.subject || ''].filter(Boolean).map(esc).join(' · ');
   drill.innerHTML =
     `<h3>${esc(task)} @ ${esc(refName(c) || sha)}${refBadge(c)} ` +
-    `<span class="dim">(${c.ref ? esc(c.sha) + ' · ' : ''}${esc(c.date || '')} · ${esc(c.subject || '')})</span>` +
+    `<span class="dim">(${sub})</span>` +
     ` — ${rs.length} run(s)${exp}</h3>` +
     rs.map(runCard).join('');
   drill.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -493,7 +502,8 @@ function renderAll() {
   chips('f-commits', DATA.commits.map(c => c.sha), state.commits,
         sha => { const c = bySha(sha); return `${refName(c)} (${c.date})`; },
         sha => { const c = bySha(sha);
-                 return `${KIND_LABEL[c.kind] || 'commit'} · ${c.sha} · ${c.date} · ${c.subject}`; },
+                 return [KIND_LABEL[c.kind] || 'commit', c.name && c.ref, c.sha, c.date, c.subject]
+                   .filter(Boolean).join(' · '); },
         sha => { const c = bySha(sha);
                  return (c.kind === 'branch' || c.kind === 'tag')
                    ? { text: KIND_LABEL[c.kind], cls: c.kind } : null; });

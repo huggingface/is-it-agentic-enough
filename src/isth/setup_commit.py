@@ -70,12 +70,14 @@ def classify_ref(ref: str) -> dict:
     return {"ref": ref, "kind": kind}
 
 
-def record_ref(ref: str, sha: str) -> None:
+def record_ref(ref: str, sha: str, name: str | None = None) -> None:
     """Persist what the commit was tested *as* to ``results/<short>/ref.json``
     so the label travels with the results (and into the bucket / report).
 
-    A named ref (branch/tag) is never downgraded: re-running the same commit
-    later by raw SHA keeps the original ``branch``/``tag`` label.
+    Merge semantics — labels only ever get richer:
+    - a branch/tag label is never downgraded by a later raw-SHA re-run;
+    - an explicit ``--name`` updates the experiment title; without one, an
+      existing title is kept.
     """
     import json
 
@@ -84,10 +86,15 @@ def record_ref(ref: str, sha: str) -> None:
     try:
         existing = json.loads(path.read_text())
     except Exception:
-        existing = None
-    if existing and existing.get("kind") != "commit" and info["kind"] == "commit":
-        return
-    path.write_text(json.dumps({**info, "sha": sha}) + "\n")
+        existing = {}
+    if existing.get("kind") in ("branch", "tag") and info["kind"] == "commit":
+        info = {"ref": existing["ref"], "kind": existing["kind"]}
+    out = {**info, "sha": sha}
+    if name:
+        out["name"] = name
+    elif existing.get("name"):
+        out["name"] = existing["name"]
+    path.write_text(json.dumps(out) + "\n")
 
 
 def suggest_refs(ref: str, names: list[str], n: int = 3) -> list[str]:

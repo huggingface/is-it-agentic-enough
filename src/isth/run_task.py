@@ -85,6 +85,7 @@ def run(
     model: str | None = None,
     max_tool_calls: int = 50,
     runner: str = "claude",
+    name: str | None = None,
 ) -> Path:
     if variant not in VARIANTS:
         raise SystemExit(f"Unknown variant: {variant}")
@@ -96,7 +97,7 @@ def run(
 
     sha = resolve_sha(ref)
     short = sha[:10]
-    record_ref(ref, sha)  # label the commit with what it was tested as (branch/tag/commit)
+    record_ref(ref, sha, name)  # label the commit: branch/tag/commit + optional experiment title
     cfg_dir = configs_dir() / short
     if not (cfg_dir / ".ready").exists():
         setup(ref)

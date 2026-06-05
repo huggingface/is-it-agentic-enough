@@ -99,6 +99,7 @@ def build_manifest() -> dict:
         out_commits[sha] = {
             "subject": subject,
             "date": date,
+            "name": ref_info.get("name"),
             "ref": ref_info.get("ref"),
             "kind": ref_info.get("kind"),
             "n_runs": len(entry["runs"]),
