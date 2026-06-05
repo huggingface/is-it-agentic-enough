@@ -42,6 +42,12 @@ lands next to cwd; override via `ISTH_DATA_DIR`.
 Each `(commit × variant × task)` is run N times (default 3) to smooth
 model non-determinism.
 
+Refs can be **SHAs, branch names, or tags** (`isth suite main`,
+`isth suite v4.56.0`) — anything `git rev-parse` resolves against your
+transformers checkout (run `git fetch` there first for fresh branches).
+What a commit was tested *as* is recorded in `results/<commit>/ref.json`
+and shows up color-coded in the report (`branch` / `release` badges).
+
 ## Runners: Claude Code or any model via Pi + HF inference providers
 
 By default the harness drives **Claude Code** (the `claude` CLI). With

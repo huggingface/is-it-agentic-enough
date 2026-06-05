@@ -22,7 +22,7 @@ from .paths import (
     workspaces_dir,
 )
 from .runners import get_runner
-from .setup_commit import resolve_sha, setup
+from .setup_commit import record_ref, resolve_sha, setup
 
 
 VARIANTS = ("bare", "clone", "skill")
@@ -96,6 +96,7 @@ def run(
 
     sha = resolve_sha(ref)
     short = sha[:10]
+    record_ref(ref, sha)  # label the commit with what it was tested as (branch/tag/commit)
     cfg_dir = configs_dir() / short
     if not (cfg_dir / ".ready").exists():
         setup(ref)
@@ -202,6 +203,7 @@ def run(
             {
                 "sha": sha,
                 "short_sha": short,
+                "ref": ref,
                 "variant": variant,
                 "task_id": task_id,
                 "run_index": run_idx,

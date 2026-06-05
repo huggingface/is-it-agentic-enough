@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .build_skill import build as build_skill_plugin
 from .log import log
-from .paths import configs_dir, transformers_src
+from .paths import configs_dir, results_dir, transformers_src
 
 
 PINNED_DEPS = [
@@ -27,6 +27,67 @@ PINNED_DEPS = [
     "accelerate",
     "huggingface_hub",
 ]
+
+
+def _looks_like_sha(ref: str) -> bool:
+    return len(ref) >= 7 and all(c in "0123456789abcdef" for c in ref.lower())
+
+
+def _git_ref_exists(refname: str) -> bool:
+    try:
+        src = str(transformers_src())
+    except SystemExit:
+        return False
+    return (
+        subprocess.run(
+            ["git", "-C", src, "show-ref", "--verify", "--quiet", refname],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode
+        == 0
+    )
+
+
+def classify_ref(ref: str) -> dict:
+    """What kind of ref the user asked to test: ``branch`` | ``tag`` | ``commit``.
+
+    Tags are checked before branches (a release tag is the more meaningful
+    label if both exist); raw SHAs, ``HEAD``, and ``HEAD~2``-style expressions
+    are plain ``commit``s.
+    """
+    if _looks_like_sha(ref) or ref == "HEAD" or any(t in ref for t in ("~", "^", "@{")):
+        kind = "commit"
+    elif _git_ref_exists(f"refs/tags/{ref}"):
+        kind = "tag"
+    elif (
+        _git_ref_exists(f"refs/heads/{ref}")
+        or _git_ref_exists(f"refs/remotes/origin/{ref}")
+        or _git_ref_exists(f"refs/remotes/{ref}")
+    ):
+        kind = "branch"
+    else:
+        kind = "commit"
+    return {"ref": ref, "kind": kind}
+
+
+def record_ref(ref: str, sha: str) -> None:
+    """Persist what the commit was tested *as* to ``results/<short>/ref.json``
+    so the label travels with the results (and into the bucket / report).
+
+    A named ref (branch/tag) is never downgraded: re-running the same commit
+    later by raw SHA keeps the original ``branch``/``tag`` label.
+    """
+    import json
+
+    info = classify_ref(ref)
+    path = results_dir(sha[:10]) / "ref.json"
+    try:
+        existing = json.loads(path.read_text())
+    except Exception:
+        existing = None
+    if existing and existing.get("kind") != "commit" and info["kind"] == "commit":
+        return
+    path.write_text(json.dumps({**info, "sha": sha}) + "\n")
 
 
 def resolve_sha(ref: str) -> str:

@@ -89,8 +89,10 @@ exists unless `--force-rerun` is set.
 
 ### `isth suite <ref> [--runs N] [--tasks ...] [--variants ...]`
 
-Run the full task suite for **one** commit (3 variants × 8 tasks). The
-number of runs per cell is resolved per task: an explicit `--runs N`
+Run the full task suite for **one** commit (3 variants × 8 tasks). `<ref>`
+can be a SHA, a branch name, or a tag (`main`, `v4.56.0`, …) — what it was
+tested as is recorded in `results/<commit>/ref.json` and badged in the
+report. The number of runs per cell is resolved per task: an explicit `--runs N`
 **overrides every** per-task `runs:` in `tasks.yaml`; without `--runs`,
 each task uses its own `runs:` (cheap tasks default to 5) or 3 if it has none.
 
@@ -282,7 +284,11 @@ top of the page answers "which commit is doing better?" at a glance:
 
 1. **Scoreboard** — one column per commit (date order), every metric as a row
    (CLI adoption %, match %, errored-calls %, failed-runs %, median time,
-   median new/out tokens), best/worst commit highlighted green/red.
+   median new/out tokens), best/worst commit highlighted green/red. Commits
+   tested as a branch or tag show their ref name with a color-coded badge
+   (`branch` = indigo, `release` = green; plain commits are unbadged) — the
+   label is captured at run time in `results/<commit>/ref.json`, with a
+   `git tag --points-at` fallback for older data.
 2. **Cross-commit trend** — the selected metric across commits; one aggregate
    line by default, with a "split lines by" selector for variant or
    harness/model breakdowns.

@@ -92,9 +92,15 @@ def build_manifest() -> dict:
         entry = commits[sha]
         subject, date = _git_meta(entry["runs"][0].get("sha") or sha)
         namespaces = sorted({f"{r['harness']}/{r['model_id']}" for r in entry["runs"]})
+        try:
+            ref_info = json.loads((root / sha / "ref.json").read_text())
+        except Exception:
+            ref_info = {}
         out_commits[sha] = {
             "subject": subject,
             "date": date,
+            "ref": ref_info.get("ref"),
+            "kind": ref_info.get("kind"),
             "n_runs": len(entry["runs"]),
             "namespaces": namespaces,
             "runs": sorted(
