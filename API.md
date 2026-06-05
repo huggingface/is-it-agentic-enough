@@ -113,8 +113,11 @@ interruption resumes where it left off. Tune with `--flavor` (default
 `t4-small`), `--timeout` (default `4h`; HF's own default is 30m), `--image`
 (default `node:22-bookworm`; any apt-capable image works), `--bucket`.
 Requires `--runner pi` + `--model` (the `claude` CLI can't authenticate on
-Jobs) and passes your `HF_TOKEN` as the job secret. Track with
-`hf jobs ps` / `hf jobs logs <id>`; pull results with `isth report --pull`.
+Jobs) and passes your `HF_TOKEN` as the job secret. Branch/tag refs are
+validated against the GitHub remote at submit time (`git ls-remote`) with
+did-you-mean suggestions, so a typo'd ref fails in ~1s locally instead of
+minutes into a paid job. Track with `hf jobs ps` / `hf jobs logs <id>`;
+pull results with `isth report --pull`.
 
 Progress shows in the rich dashboard: a panel header, a counters line,
 and a table with rows = (task, variant) and one column for the ref.

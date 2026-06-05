@@ -68,6 +68,49 @@ _BOOTSTRAP_STEPS = [
 _BOOTSTRAP = " ; ".join(_BOOTSTRAP_STEPS)
 
 
+def _validate_remote_ref(ref: str) -> None:
+    """Fail at submit time (≈1s, free) if ``ref`` won't resolve in the job's
+    fresh clone of ``transformers`` — instead of minutes into a paid job.
+
+    Validates against the *remote* (exactly what the job clones), so it works
+    for branches your local checkout hasn't fetched yet. Raw SHAs and
+    ``HEAD``-style expressions can't be checked via ``ls-remote`` and are
+    trusted (the job's full clone has all reachable history)."""
+    from .setup_commit import _looks_like_sha, suggest_refs
+
+    if _looks_like_sha(ref) or ref == "HEAD" or any(t in ref for t in ("~", "^", "@{")):
+        return
+    found = (
+        subprocess.run(
+            ["git", "ls-remote", "--exit-code", TRANSFORMERS_GIT,
+             f"refs/heads/{ref}", f"refs/tags/{ref}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode
+        == 0
+    )
+    if found:
+        return
+    names: list[str] = []
+    for flag in ("--heads", "--tags"):
+        proc = subprocess.run(
+            ["git", "ls-remote", flag, "--refs", TRANSFORMERS_GIT],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode == 0:
+            for line in proc.stdout.splitlines():
+                parts = line.split("\t")
+                if len(parts) == 2:
+                    names.append(parts[1].split("/", 2)[-1])
+    sugg = suggest_refs(ref, names)
+    hint = f" Did you mean: {', '.join(sugg)}?" if sugg else ""
+    raise SystemExit(
+        f"`{ref}` is neither a branch nor a tag on {TRANSFORMERS_GIT} "
+        f"(checked with ls-remote — this is what the job would clone).{hint}"
+    )
+
+
 def build_suite_cmd(args) -> list[str]:
     """Reconstruct the `isth suite` command line the job should execute."""
     cmd = [".env/bin/isth", "suite", args.ref, "--runner", "pi",
@@ -94,6 +137,7 @@ def build_job_invocation(args) -> list[str]:
         )
     if not args.model:
         raise SystemExit("--job requires --model (the HF model id the pi runner should serve).")
+    _validate_remote_ref(args.ref)
 
     script = (
         _BOOTSTRAP

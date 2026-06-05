@@ -90,11 +90,47 @@ def record_ref(ref: str, sha: str) -> None:
     path.write_text(json.dumps({**info, "sha": sha}) + "\n")
 
 
+def suggest_refs(ref: str, names: list[str], n: int = 3) -> list[str]:
+    """Close/containing matches for an unknown ref, best first (`5.9.0` → `v5.9.0`)."""
+    import difflib
+
+    close = difflib.get_close_matches(ref, names, n=n, cutoff=0.6)
+    contains = [c for c in names if ref.lower() in c.lower() and c not in close]
+    return (close + contains)[:n]
+
+
+def _local_ref_names() -> list[str]:
+    """Tag + branch names known to the local transformers checkout."""
+    src = str(transformers_src())
+    names: list[str] = []
+    for args in (["tag", "--list"], ["branch", "-a", "--format=%(refname:short)"]):
+        try:
+            out = subprocess.check_output(["git", "-C", src, *args], text=True)
+        except subprocess.CalledProcessError:
+            continue
+        for line in out.splitlines():
+            line = line.strip().removeprefix("origin/")
+            if line and line != "HEAD":
+                names.append(line)
+    return sorted(set(names))
+
+
 def resolve_sha(ref: str) -> str:
-    out = subprocess.check_output(
-        ["git", "-C", str(transformers_src()), "rev-parse", ref],
+    src = str(transformers_src())
+    proc = subprocess.run(
+        ["git", "-C", src, "rev-parse", ref],
         text=True,
-    ).strip()
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        sugg = suggest_refs(ref, _local_ref_names())
+        hint = (
+            f" Did you mean: {', '.join(sugg)}?"
+            if sugg
+            else " (If it's a brand-new branch, `git fetch` the transformers checkout first.)"
+        )
+        raise SystemExit(f"`{ref}` is not a known commit, branch, or tag in {src}.{hint}")
+    out = proc.stdout.strip()
     # `git rev-parse` on a range (A..B) returns multiple lines — that's not a single
     # commit. Reject it with a clear message rather than corrupting callers.
     if "\n" in out:
