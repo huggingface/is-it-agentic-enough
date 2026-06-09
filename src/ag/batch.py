@@ -124,33 +124,80 @@ def plan_lines(cfg: dict, cells: list[Cell]) -> str:
     return "\n".join([head, meta, *rows])
 
 
-def _watch(submitted: list[tuple[Cell, str]], poll: int) -> list[tuple[str, str]]:
-    """Poll until every submitted job is terminal; return [(job_id, stage)] of
-    the ones that did not COMPLETE."""
+def _job_stage(api, jid: str) -> str:
+    """Current stage of a job, defensively (JobInfo.status may be a dict or obj)."""
+    try:
+        ji = api.inspect_job(job_id=jid)
+        st = getattr(ji, "status", None)
+        stage = st.get("stage") if isinstance(st, dict) else getattr(st, "stage", st)
+        return str(stage)
+    except Exception as e:  # noqa: BLE001
+        return f"inspect-error: {e}"
+
+
+def _is_terminal(stage: str) -> bool:
+    return stage.upper() in _TERMINAL or "error" in stage.lower()
+
+
+def _track(entries: list[tuple[str, str]], *, watch: bool, poll: int) -> list[tuple[str, str, str]]:
+    """``entries`` = ``[(label, job_id)]``. Snapshot (``watch=False``) prints each
+    job's current stage and returns ``[]`` (running ≠ failed). ``watch=True`` polls
+    until every job is terminal and returns ``[(label, job_id, stage)]`` for the
+    ones that did not COMPLETE."""
     from huggingface_hub import HfApi
 
     api = HfApi()
-    pending = {jid: cell for cell, jid in submitted}  # job_id -> Cell
+    if not watch:
+        for label, jid in entries:
+            stage = _job_stage(api, jid)
+            mark = "✓" if stage.upper() == "COMPLETED" else ("✗" if _is_terminal(stage) else "…")
+            log(f"  {mark} {label}  [{stage}]")
+        return []
+
+    pending = {jid: label for label, jid in entries}
+    bad: list[tuple[str, str, str]] = []
     log(f"watching {len(pending)} job(s) (poll every {poll}s)…")
-    finished: dict[str, str] = {}
     while pending:
         time.sleep(poll)
         for jid in list(pending):
-            try:
-                ji = api.inspect_job(job_id=jid)
-                st = getattr(ji, "status", None)
-                stage = st.get("stage") if isinstance(st, dict) else getattr(st, "stage", st)
-            except Exception as e:  # noqa: BLE001
-                stage = f"inspect-error: {e}"
-            if str(stage).upper() in _TERMINAL or "error" in str(stage).lower():
-                cell = pending.pop(jid)
-                finished[jid] = str(stage)
-                ok = str(stage).upper() == "COMPLETED"
-                log(f"  {'✓' if ok else '✗'} {cell.label()}  [{stage}]")
-    return [(jid, s) for jid, s in finished.items() if s.upper() != "COMPLETED"]
+            stage = _job_stage(api, jid)
+            if _is_terminal(stage):
+                label = pending.pop(jid)
+                ok = stage.upper() == "COMPLETED"
+                log(f"  {'✓' if ok else '✗'} {label}  [{stage}]")
+                if not ok:
+                    bad.append((label, jid, stage))
+    return bad
 
 
-def run_batch(path, *, submit: bool = False, watch: bool = False, poll: int = 30) -> int:
+def _state_file(path) -> Path:
+    return state_root() / "batches" / f"{Path(path).stem}.json"
+
+
+def _status(path, *, watch: bool, poll: int) -> int:
+    sfile = _state_file(path)
+    if not sfile.exists():
+        log(f"no recorded jobs at {sfile} — run `ag batch {path} --submit` first.")
+        return 1
+    entries = [(j["label"], j["job_id"]) for j in json.loads(sfile.read_text()).get("jobs", [])]
+    if not entries:
+        log(f"{sfile}: no jobs recorded.")
+        return 0
+    log(f"status of {len(entries)} job(s) from {sfile.name}:")
+    bad = _track(entries, watch=watch, poll=poll)
+    if bad:
+        log(f"⚠ {len(bad)} job(s) did not complete:")
+        for label, jid, st in bad:
+            log(f"  - {label}: {st}  (hf jobs logs {jid})")
+        return 1
+    return 0
+
+
+def run_batch(path, *, submit: bool = False, watch: bool = False, status: bool = False,
+              poll: int = 30) -> int:
+    if status:
+        return _status(path, watch=watch, poll=poll)
+
     cfg = load_batch(path)
     cells = expand(cfg)
     log(plan_lines(cfg, cells))
@@ -163,7 +210,7 @@ def run_batch(path, *, submit: bool = False, watch: bool = False, poll: int = 30
     from .run_suite import run_suite
 
     submitted: list[tuple[Cell, str]] = []  # (cell, job_id)
-    failures: list[tuple[Cell, str]] = []
+    failures: list[str] = []
     for c in cells:
         args = _cell_args(cfg, c)
         try:
@@ -180,32 +227,31 @@ def run_batch(path, *, submit: bool = False, watch: bool = False, poll: int = 30
                     skip_existing=not args.force_rerun,
                 )
         except Exception as e:  # noqa: BLE001
-            failures.append((c, str(e)))
+            failures.append(f"{c.label()}: {e}")
             log(f"  ! {c.label()}  {e}")
 
     if submitted:
-        sdir = state_root() / "batches"
-        sdir.mkdir(parents=True, exist_ok=True)
-        sfile = sdir / f"{Path(path).stem}.json"
-        sfile.write_text(json.dumps(
+        _state_file(path).parent.mkdir(parents=True, exist_ok=True)
+        _state_file(path).write_text(json.dumps(
             {"profile": cfg["profile"],
              "jobs": [{"label": c.label(), "ref": c.ref, "name": c.name,
                        "model": c.model, "job_id": jid} for c, jid in submitted]},
             indent=2,
         ))
-        log(f"recorded {len(submitted)} job(s) → {sfile}")
+        log(f"recorded {len(submitted)} job(s) → {_state_file(path)}")
 
     if watch and submitted:
-        failures += [(Cell(cfg["profile"], "?", None, None, "pi"), f"job {jid}: {st} (hf jobs logs {jid})")
-                     for jid, st in _watch(submitted, poll)]
+        failures += [f"{label}: {st} (hf jobs logs {jid})"
+                     for label, jid, st in _track([(c.label(), jid) for c, jid in submitted],
+                                                   watch=True, poll=poll)]
     elif submitted:
-        log("track with `hf jobs ps` / `hf jobs logs <id>`; "
+        log(f"track with `ag batch {path} --status` (snapshot) or `--status --watch`; "
             f"then `ag report {cfg['profile']} --pull`.")
 
     if failures:
         log(f"⚠ {len(failures)} issue(s):")
-        for c, why in failures:
-            log(f"  - {why if c.ref == '?' else c.label() + ': ' + why}")
+        for why in failures:
+            log(f"  - {why}")
         return 1
     log("✓ batch complete.")
     return 0

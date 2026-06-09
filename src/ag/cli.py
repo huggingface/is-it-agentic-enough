@@ -267,7 +267,7 @@ def _cmd_sync(args: argparse.Namespace) -> int:
 def _cmd_batch(args: argparse.Namespace) -> int:
     from .batch import run_batch
 
-    return run_batch(args.file, submit=args.submit, watch=args.watch, poll=args.poll)
+    return run_batch(args.file, submit=args.submit, watch=args.watch, status=args.status, poll=args.poll)
 
 
 def _cmd_tasks(args: argparse.Namespace) -> int:  # noqa: ARG001
@@ -524,7 +524,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bp.add_argument("file", help="YAML batch config (profile, models, revisions, optional tasks/tiers/runs/flavor).")
     bp.add_argument("--submit", action="store_true", help="Actually launch (default: print the plan only).")
-    bp.add_argument("--watch", action="store_true", help="After submitting, poll the jobs until done and report any failures.")
+    bp.add_argument("--watch", action="store_true", help="Poll the jobs until done and report failures (with --submit, or alongside --status).")
+    bp.add_argument("--status", action="store_true", help="Don't launch; report the current state of the batch's already-submitted jobs (from batches/<name>.json).")
     bp.add_argument("--poll", type=int, default=30, help="Watch poll interval in seconds (default 30).")
     bp.set_defaults(func=_cmd_batch)
 

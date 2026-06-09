@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from ag import batch
@@ -75,3 +77,40 @@ def test_cell_args_threads_config(tmp_path):
     assert a.tasks == ["classify-sentiment", "tokenize-count"]
     assert a.flavor == "t4-small"
     assert a.runs is None  # not set → per-task default downstream
+
+
+def test_status_without_state_file_errors(tmp_path, data_root):
+    p = tmp_path / "m.yaml"
+    p.write_text("ignored")  # status mode doesn't parse the YAML, only its stem
+    assert batch.run_batch(p, status=True) == 1
+
+
+def _seed_state(data_root, stem, jobs):
+    sdir = data_root / "batches"
+    sdir.mkdir(parents=True, exist_ok=True)
+    (sdir / f"{stem}.json").write_text(json.dumps({"profile": "transformers", "jobs": jobs}))
+
+
+class _FakeJI:
+    def __init__(self, stage):
+        self.status = {"stage": stage}
+
+
+def test_status_snapshot_all_completed(tmp_path, data_root, monkeypatch):
+    import huggingface_hub
+    _seed_state(data_root, "m", [{"label": "pi:x @ v1", "job_id": "j1"},
+                                 {"label": "pi:y @ v1", "job_id": "j2"}])
+    monkeypatch.setattr(huggingface_hub.HfApi, "inspect_job",
+                        lambda self, job_id: _FakeJI("COMPLETED"))
+    p = tmp_path / "m.yaml"; p.write_text("x")
+    assert batch.run_batch(p, status=True, watch=False) == 0
+
+
+def test_watch_reports_non_completed(tmp_path, data_root, monkeypatch):
+    import huggingface_hub
+    _seed_state(data_root, "m", [{"label": "pi:x @ v1", "job_id": "j1"}])
+    monkeypatch.setattr(huggingface_hub.HfApi, "inspect_job",
+                        lambda self, job_id: _FakeJI("ERROR"))
+    p = tmp_path / "m.yaml"; p.write_text("x")
+    # watch with poll=0 → terminal ERROR on first pass → reported as a failure (rc 1)
+    assert batch.run_batch(p, status=True, watch=True, poll=0) == 1
