@@ -1,6 +1,6 @@
-"""Submit an ``isth suite`` as a Hugging Face Job (``isth suite … --job``).
+"""Submit an ``ag suite`` as a Hugging Face Job (``ag suite … --job``).
 
-Instead of executing the suite locally, build the equivalent ``isth`` command,
+Instead of executing the suite locally, build the equivalent ``ag`` command,
 wrap it in a self-contained bootstrap (uv + the ``pi`` CLI + clones of
 ``transformers`` and this repo), and submit it with ``hf jobs run``:
 
@@ -12,10 +12,10 @@ wrap it in a self-contained bootstrap (uv + the ``pi`` CLI + clones of
   are merged back into the bucket by commit directory.
 
 Only the ``pi`` runner works on Jobs: the ``claude`` CLI needs interactive
-auth, while ``pi`` just needs the ``HF_TOKEN`` secret (which ``isth`` strips
+auth, while ``pi`` just needs the ``HF_TOKEN`` secret (which ``ag`` strips
 from the agent's task environment, keeping runs comparable). Track a submitted
 job with ``hf jobs ps`` / ``hf jobs logs <id>``, then pull the new runs down
-with ``isth report --pull``.
+with ``ag report --pull``.
 """
 
 from __future__ import annotations
@@ -27,11 +27,13 @@ from .log import log
 from .upload import _have_hf_cli
 
 DEFAULT_IMAGE = "node:22-bookworm"  # git + node/npm for the pi CLI out of the box
-DEFAULT_FLAVOR = "t4-small"
+# t4-medium = same T4 GPU as t4-small but 100 GB ephemeral storage (vs 50 GB).
+# A suite downloads many task models into the HF cache; 50 GB evicts the pod.
+DEFAULT_FLAVOR = "t4-medium"
 DEFAULT_TIMEOUT = "4h"
 DEFAULT_BUCKET = "lysandre/transformers-agentic-use"
 
-ISTH_GIT = "https://github.com/huggingface/is-transformers-agentic-enough"
+AG_GIT = "https://github.com/huggingface/is-transformers-agentic-enough"
 TRANSFORMERS_GIT = "https://github.com/huggingface/transformers"
 
 # The bootstrap is submitted as ONE argv token after a single `-c`. The Jobs
@@ -48,17 +50,17 @@ _BOOTSTRAP_STEPS = [
     'export PATH="$HOME/.local/bin:$PATH"',
     "npm i -g @mariozechner/pi-coding-agent",
     "git clone --filter=blob:none __TRANSFORMERS_GIT__ /work/transformers",
-    "git clone __ISTH_GIT__ /work/isth",
-    "cd /work/isth",
+    "git clone __AG_GIT__ /work/ag",
+    "cd /work/ag",
     "uv venv --python 3.13 .env",
     "uv pip install --python .env/bin/python -e .",
-    "export ISTH_TRANSFORMERS_SRC=/work/transformers",
-    "export ISTH_DATA_DIR=/work/state",
+    "export AG_TRANSFORMERS_SRC=/work/transformers",
+    "export AG_DATA_DIR=/work/state",
     # resumability: seed local state from the bucket so completed cells are skipped
     "mkdir -p /work/state/results /work/state/traces /bucket/results /bucket/traces",
     "cp -a /bucket/results/. /work/state/results/ 2>/dev/null || true",
     "status=0",
-    "__ISTH_CMD__ || status=$?",
+    "__AG_CMD__ || status=$?",
     # land everything back in the mounted bucket (merge by commit dir), even if
     # the suite was interrupted — completed runs are still worth keeping
     "cp -a /work/state/results/. /bucket/results/ 2>/dev/null || true",
@@ -112,8 +114,8 @@ def _validate_remote_ref(ref: str) -> None:
 
 
 def build_suite_cmd(args) -> list[str]:
-    """Reconstruct the `isth suite` command line the job should execute."""
-    cmd = [".env/bin/isth", "suite", args.ref, "--runner", "pi",
+    """Reconstruct the `ag suite` command line the job should execute."""
+    cmd = [".env/bin/ag", "suite", args.profile, args.ref, "--runner", "pi",
            "--model", args.model, "--no-live"]
     if args.name:
         cmd += ["--name", args.name]
@@ -121,8 +123,8 @@ def build_suite_cmd(args) -> list[str]:
         cmd += ["--runs", str(args.runs)]
     if args.tasks:
         cmd += ["--tasks", *args.tasks]
-    if args.variants:
-        cmd += ["--variants", *args.variants]
+    if args.tiers:
+        cmd += ["--tiers", *args.tiers]
     if args.max_tool_calls != 50:
         cmd += ["--max-tool-calls", str(args.max_tool_calls)]
     if args.force_rerun:
@@ -130,8 +132,17 @@ def build_suite_cmd(args) -> list[str]:
     return cmd
 
 
-def build_job_invocation(args) -> list[str]:
-    """The full `hf jobs run …` argv (also the unit under test)."""
+def bootstrap_script(args) -> str:
+    """The one-line bootstrap that builds the env and runs the suite inside the job."""
+    return (
+        _BOOTSTRAP
+        .replace("__TRANSFORMERS_GIT__", TRANSFORMERS_GIT)
+        .replace("__AG_GIT__", AG_GIT)
+        .replace("__AG_CMD__", shlex.join(build_suite_cmd(args)))
+    )
+
+
+def _check_job_args(args) -> None:
     if (args.runner or "claude") != "pi":
         raise SystemExit(
             "--job requires --runner pi: the claude CLI can't authenticate on HF Jobs; "
@@ -141,12 +152,10 @@ def build_job_invocation(args) -> list[str]:
         raise SystemExit("--job requires --model (the HF model id the pi runner should serve).")
     _validate_remote_ref(args.ref)
 
-    script = (
-        _BOOTSTRAP
-        .replace("__TRANSFORMERS_GIT__", TRANSFORMERS_GIT)
-        .replace("__ISTH_GIT__", ISTH_GIT)
-        .replace("__ISTH_CMD__", shlex.join(build_suite_cmd(args)))
-    )
+
+def build_job_invocation(args) -> list[str]:
+    """The full `hf jobs run …` argv (also the unit under test)."""
+    _check_job_args(args)
     return [
         "hf", "jobs", "run",
         "--flavor", args.flavor,
@@ -155,8 +164,31 @@ def build_job_invocation(args) -> list[str]:
         "--secrets", "HF_TOKEN",
         "--volume", f"hf://buckets/{args.bucket}:/bucket",
         args.image,
-        "bash", "-c", script,
+        "bash", "-c", bootstrap_script(args),
     ]
+
+
+def submit_job_api(args):
+    """Submit one suite as an HF Job via the ``huggingface_hub`` Python API and
+    return the ``JobInfo`` (carries ``.id`` / ``.status`` / ``.url`` for tracking).
+    Used by ``ag batch``; ``ag suite --job`` keeps the shell path."""
+    import os
+
+    from huggingface_hub import HfApi
+    from huggingface_hub.cli.jobs import parse_volumes
+
+    _check_job_args(args)
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    if not token:
+        raise SystemExit("HF_TOKEN (or HUGGING_FACE_HUB_TOKEN) must be set to submit jobs.")
+    return HfApi().run_job(
+        image=args.image,
+        command=["bash", "-c", bootstrap_script(args)],
+        secrets={"HF_TOKEN": token},
+        volumes=parse_volumes([f"hf://buckets/{args.bucket}:/bucket"]),
+        flavor=args.flavor,
+        timeout=args.timeout,
+    )
 
 
 def submit_suite(args) -> int:
@@ -171,5 +203,5 @@ def submit_suite(args) -> int:
     rc = subprocess.run(cmd).returncode
     if rc == 0:
         log("✓ submitted — track with `hf jobs ps` / `hf jobs logs <job-id>`; "
-            "when it finishes, `isth report --pull` brings the new runs into the dashboard.")
+            "when it finishes, `ag report --pull` brings the new runs into the dashboard.")
     return rc

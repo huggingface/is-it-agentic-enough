@@ -2,16 +2,31 @@
   <img width="100%" alt="Screenshot 2026-04-28 at 16 19 34" src="https://github.com/user-attachments/assets/f8d3962d-cd28-4891-90e1-dc54ad841989" />
 </p>
 
-# is-transformers-agentic-enough
+# `ag` — a profile-based agentic-eval harness
 
-Harness for measuring how a Claude Code agent uses `transformers` at a
-given commit, across three discovery conditions.
+`ag` runs a list of **tasks** through a coding agent inside an **environment**,
+and scores each run's answer against an **expected response** — then reports how
+behavior and correctness move across an axis you choose.
 
-> ⚠️ **Trusted local use only.** This harness runs `claude` with
-> `--permission-mode bypassPermissions` and executes code from whatever
-> `transformers` ref you point it at. See [SECURITY.md](./SECURITY.md)
+Everything environment-specific lives behind a **profile** (the first CLI argument, `ag <command> <profile> …`):
+
+- **`transformers`** (default) — the original study: build a git worktree of
+  `transformers` at a **binding** (a revision), across three assistance
+  **tiers** (`bare`/`clone`/`skill`), and track adoption of the CLI vs
+  `pipeline()` etc. via behavior **markers**. `ag diff transformers A..B` compares revisions.
+- **`mock`** — a fast, fake profile (no install, no real agent) for exercising
+  the UI and smoke-testing the whole pipeline end-to-end in seconds. Pair with
+  `--runner mock`: `ag suite mock dev --runner mock`.
+
+The original transformers study is the worked example throughout this README;
+the harness core (tasks, tiers, runners, markers, matching, reports) is generic.
+
+> ⚠️ **Trusted local use only.** With the `transformers` profile this runs
+> `claude` with `--permission-mode bypassPermissions` and executes code from
+> whatever `transformers` ref you point it at. See [SECURITY.md](./SECURITY.md)
 > before pointing it at anything you didn't write yourself, and before
-> sharing the contents of `results/`.
+> sharing the contents of `results/`. (The `mock` profile runs no agent and is
+> always safe.)
 
 ## Install
 
@@ -20,13 +35,16 @@ uv venv --python 3.13 .env
 uv pip install --python .env/bin/python -e .
 ```
 
-This installs the `isth` command into `.env/bin/isth`. The harness assumes
+This installs the `ag` command into `.env/bin/ag`. The harness assumes
 the transformers source repo lives at `../transformers` relative to this
-directory; override with `ISTH_TRANSFORMERS_SRC=/path/to/transformers` if
+directory; override with `AG_TRANSFORMERS_SRC=/path/to/transformers` if
 it's elsewhere. Runtime state (`configs/`, `workspaces/`, `results/`)
-lands next to cwd; override via `ISTH_DATA_DIR`.
+lands next to cwd; override via `AG_DATA_DIR`.
 
-## Conditions tested per commit
+## Tiers (the `transformers` profile)
+
+A profile defines **tiers** — "how much help the agent gets." The `transformers`
+profile ships three:
 
 - **bare** — only `pip install` of transformers. Workspace has `inputs/`
   and nothing else. Tests whether the CLI is self-discoverable with no
@@ -39,11 +57,30 @@ lands next to cwd; override via `ISTH_DATA_DIR`.
   `--plugin-dir`. Silently skipped for commits where the skill can't be
   derived.
 
-Each `(commit × variant × task)` is run N times (default 3) to smooth
-model non-determinism.
+Each `(binding × tier × task)` is run N times (default 3) to smooth model
+non-determinism. A different profile declares its own tiers (the `mock` profile
+reuses these three so its reports look the same).
 
-Refs can be **SHAs, branch names, or tags** (`isth suite main`,
-`isth suite v4.56.0`) — anything `git rev-parse` resolves against your
+## Behavior markers
+
+A profile declares **markers** — independent, possibly-overlapping named
+regexes matched against a run's commands / written code / read paths / final
+answer. Each is tracked as adoption (`fired-runs / total-runs`) per cell and
+across bindings, so the report shows *"how did adoption of behavior X move
+across revisions / model growth."* The `transformers` profile ships `cli`
+(invoked the `transformers` CLI), `pipeline` (used `pipeline(...)`), `ran-help`,
+and `agentic-exemplar` (read a `cli/agentic/*.py` exemplar). Generic profiles
+define their own, or none.
+
+## Scoring
+
+Each task may set `expected:` and a `match:` mode — `substring` (default),
+`exact`, or `regex` — and the agent's final answer is checked against it
+(the `✓match` signal). Markers measure *behavior*; matching measures
+*correctness*.
+
+Refs can be **SHAs, branch names, or tags** (`ag suite transformers main`,
+`ag suite transformers v4.56.0`) — anything `git rev-parse` resolves against your
 transformers checkout (run `git fetch` there first for fresh branches).
 What a commit was tested *as* is recorded in `results/<commit>/ref.json`
 and shows up color-coded in the report (`branch` / `release` badges).
@@ -64,7 +101,7 @@ via `--plugin-dir`, Pi via `--skill`).
 # stripped from the agent's task environment so model downloads stay anonymous
 # and comparable to the Claude runs.
 export HF_TOKEN=hf_...
-isth diff A..B --runner pi \
+ag diff transformers A..B --runner pi \
   --model Qwen/Qwen3-Coder-480B-A35B-Instruct > progress.md
 ```
 
@@ -74,17 +111,20 @@ Add `--job` to run the suite on Hugging Face infrastructure instead of your
 machine ([HF Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)):
 
 ```bash
-isth suite <ref> --runner pi --model Qwen/Qwen3-Coder-480B-A35B-Instruct --job
+ag suite transformers <ref> --runner pi --model Qwen/Qwen3-Coder-480B-A35B-Instruct --job
 # → detached job; track with `hf jobs ps` / `hf jobs logs <id>`,
-#   then `isth report --pull` to bring the new runs into the dashboard
+#   then `ag report transformers --pull` to bring the new runs into the dashboard
 ```
 
 The job bootstraps everything itself (uv, the `pi` CLI, clones of
 `transformers` and this repo), mounts the bucket **read+write** at `/bucket`
 so results land in it directly, and seeds its local `results/` from the
 bucket first so already-completed cells are skipped — interrupted jobs are
-resumable by resubmitting. `--flavor` (default `t4-small`), `--timeout`
-(default `4h` — HF's own default is only 30m), `--image`, and `--bucket`
+resumable by resubmitting. Each run's workspace (a full transformers worktree
+for the `clone` variant) is deleted as soon as its trace is captured, so a long
+suite doesn't fill the pod's ephemeral disk. `--flavor` (default `t4-medium`,
+100 GB — task-model downloads fill the HF cache; `t4-small`'s 50 GB evicts),
+`--timeout` (default `4h` — HF's own default is only 30m), `--image`, and `--bucket`
 tune the job. Only the `pi` runner works on Jobs (the `claude` CLI needs
 interactive auth; `pi` just needs the `HF_TOKEN` secret, which the harness
 strips from the agent's task environment as usual).
@@ -98,7 +138,7 @@ run. Pass the same `--runner`/`--model` to
 `analyze`/`compare`/`explain`/`upload`/`sync` to read them back. Note: HF
 inference providers generally don't prompt-cache, so
 the `repeat` (cache-read) token column is ~0 for Pi runs — read `new`≈input and
-`out`=output. `isth explain` shows explicit `tokens in:/out:` per run and
+`out`=output. `ag explain` shows explicit `tokens in:/out:` per run and
 median in/out per cell.
 
 ## Uploading traces to the Hugging Face Hub
@@ -107,14 +147,14 @@ Every run persists the agent's **native** session file (Claude Code / Pi)
 under `traces/<commit>/<harness>/<model_id>/`, mirroring the
 [result layout](#result-layout) — sharing traces is the whole point, so this
 is unconditional. These are natively rendered by the Hub
-[agent-traces viewer](https://huggingface.co/docs/hub/agent-traces). `isth
+[agent-traces viewer](https://huggingface.co/docs/hub/agent-traces). `ag
 upload` packages them into a dataset (with a `traces`-tagged card) and uploads
 via the `hf` CLI:
 
 ```bash
-isth suite <ref> --runner pi --model <id>
-isth upload <user>/<dataset> --runner pi --model <id>          # DRY RUN
-isth upload <user>/<dataset> --runner pi --model <id> --push   # actually upload
+ag suite transformers <ref> --runner pi --model <id>
+ag upload <user>/<dataset> --runner pi --model <id>          # DRY RUN
+ag upload <user>/<dataset> --runner pi --model <id> --push   # actually upload
 ```
 
 Uploads are **dry-run by default** (nothing is pushed without `--push`) and
@@ -126,26 +166,30 @@ before publishing — they can contain prompts, command output, and local paths.
 The full CLI reference — every subcommand, every flag, the typical
 workflows — lives in [API.md](./API.md). At a glance:
 
+Every run/read command takes the **profile** as its first positional
+(`ag <command> <profile> …`) — the profile dictates the environment; the
+revision only varies within it.
+
 ```bash
-isth tasks                                  # list the 8 task ids
-isth setup <ref> [--remove]                 # build / tear down per-commit cache
-isth run <ref> <task> <run_index> [variants...]  # one cell, ad-hoc
-isth suite <ref>                            # full suite for one commit
-isth diff <ref1>..<ref2>[..<refN>]          # end-to-end: run + compare
-isth analyze <short-sha> [task_id]          # per-commit markdown report
-isth compare <refs...>                      # cross-ref diff table
-isth explain <variant> <task> <refs...>     # per-cell tool-call timeline
-isth upload <user>/<dataset>                # push captured traces to the Hub (dry-run by default)
-isth sync [<namespace>/<bucket>]            # mirror results/ + traces/ + manifest with the HF bucket (dry-run)
-isth report [refs...]                       # static HTML report (charts + drill-down); --push → HF Space
+ag tasks                                       # list the task ids
+ag setup <profile> <ref> [--remove]            # build / tear down per-revision env
+ag run <profile> <ref> <task> <run_index> [tiers...]  # one cell, ad-hoc
+ag suite <profile> <ref>                       # full suite for one revision
+ag diff <profile> <ref1>..<ref2>[..<refN>]     # end-to-end: run + compare
+ag analyze <profile> <binding> [task_id]       # per-revision markdown report
+ag compare <profile> <refs...>                 # cross-revision diff table
+ag explain <profile> <tier> <task> <refs...>   # per-cell tool-call timeline
+ag upload <user>/<dataset>                     # push captured traces to the Hub (dry-run by default)
+ag sync [<namespace>/<bucket>]                 # mirror results/ + traces/ + manifest with the HF bucket (dry-run)
+ag report <profile> [refs...]                  # static HTML report (charts + drill-down); --push → HF Space
 ```
 
 Add `--runner pi --model <id>` to any run-producing
 command (`run`/`suite`/`diff`) to evaluate an HF-served model instead of Claude.
 
-Most-common path: `isth diff A..B > progress.md` builds caches, runs the
+Most-common path: `ag diff transformers A..B > progress.md` builds caches, runs the
 suite on each ref, and prints the comparison report in one shot. While
-it's running you can run `isth explain <variant> <task> A..B` from
+it's running you can run `ag explain transformers <tier> <task> A..B` from
 another terminal to drill into any cell that looks weird in the live
 dashboard.
 
@@ -155,9 +199,9 @@ The checked-in [`progress.md`](./progress.md) was produced by running the
 harness against two commits straddling the agent-first CLI work.
 
 ```bash
-isth suite 0ea540efff           # "before" — /v1/completions endpoint commit
-isth suite 59e4754341           # "after"  — bugfixes after the CLI landed
-isth compare 0ea540efff 59e4754341 > progress.md
+ag suite transformers 0ea540efff           # "before" — /v1/completions endpoint commit
+ag suite transformers 59e4754341           # "after"  — bugfixes after the CLI landed
+ag compare transformers 0ea540efff 59e4754341 > progress.md
 ```
 
 Each `(commit × variant × task)` cell ran 3 times, so a full suite for one
@@ -206,17 +250,17 @@ For the two commits above, that's 6 variants-with-data × 8 tasks × 3 runs =
 
 ### Syncing with the bucket
 
-`isth sync` mirrors `results/` + `traces/` and a generated
+`ag sync` mirrors `results/` + `traces/` and a generated
 `results/MANIFEST.json` (the record of *which* configs/commits were run —
 per-commit git subject/date plus the set of harness/model/variant/task/run
 cells present) to a Hugging Face **[bucket](https://huggingface.co/docs/huggingface_hub/en/guides/buckets)**
 (S3-like Xet object storage) via `hf buckets sync`. It is **dry-run by default**:
 
 ```bash
-isth sync                       # DRY RUN: refresh the manifest + print the sync plan
-isth sync --push                # create bucket if needed + sync results/ + traces/ + manifest up
-isth sync --pull                # sync results/ + traces/ back down from the bucket
-isth sync --push --delete       # also prune bucket files that no longer exist locally
+ag sync                       # DRY RUN: refresh the manifest + print the sync plan
+ag sync --push                # create bucket if needed + sync results/ + traces/ + manifest up
+ag sync --pull                # sync results/ + traces/ back down from the bucket
+ag sync --push --delete       # also prune bucket files that no longer exist locally
 ```
 
 The bucket defaults to `lysandre/transformers-agentic-use`; pass a different
@@ -228,9 +272,9 @@ commit-first, syncing different commits (or different machines) never
 overwrites unrelated runs — each `--push` just adds/refreshes that commit's
 subtree (unless you pass `--delete`).
 
-### Visualizing: `isth report`
+### Visualizing: `ag report`
 
-`isth report` distills every run under `results/` into a **single static
+`ag report` distills every run under `results/` into a **single static
 HTML page** with interactive Plotly charts — cross-commit trends, model-vs-model
 comparison, a per-task heatmap with click-through drill-down to individual runs
 (tool-call timeline, errors, final answer, trace pointer), and token/duration
@@ -238,9 +282,9 @@ distributions. The run records are embedded as JSON and rendered client-side,
 so the page keeps its filters (commit / model / variant / task) with no server.
 
 ```bash
-isth report                     # write report/index.html + print the path
-isth report --pull --open       # refresh from the bucket, then open in a browser
-isth report --push              # publish as a private static HF Space
+ag report transformers                     # write report/index.html + print the path
+ag report transformers --pull --open       # refresh from the bucket, then open in a browser
+ag report transformers --push              # publish as a private static HF Space
 ```
 
 The `report/` directory (`index.html` + `plotly.min.js` + `README.md` with

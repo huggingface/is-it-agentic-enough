@@ -12,8 +12,8 @@ things:
 
 By normalizing every runner's output to the canonical schema **at write time**,
 the rest of the harness — the live accounting loop in ``run_task.run`` and the
-whole read-side (:mod:`isth.analyze`, :mod:`isth.compare`, :mod:`isth.explain`,
-:func:`isth.log.summarize_event`) — stays runner-agnostic, and Pi runs land in
+whole read-side (:mod:`ag.analyze`, :mod:`ag.compare`, :mod:`ag.explain`,
+:func:`ag.log.summarize_event`) — stays runner-agnostic, and Pi runs land in
 the same tables as Claude runs.
 
 The canonical event shapes consumed downstream are:
@@ -33,6 +33,8 @@ from __future__ import annotations
 
 import json
 import os
+import random
+import sys
 from pathlib import Path
 
 
@@ -54,11 +56,13 @@ class Runner:
         self,
         prompt: str,
         ws: Path,
-        cfg_dir: Path,
-        variant: str,
+        assets: dict,
         model: str | None,
         session_dir: Path | None = None,
     ) -> list[str]:
+        """Build the subprocess command. ``assets`` is the profile's per-tier
+        extras: ``plugin_dir`` (Claude ``--plugin-dir``) / ``skill_dir`` (Pi
+        ``--skill``); empty for tiers/profiles with no agent assets."""
         raise NotImplementedError
 
     def env(self, venv_python: Path, session_dir: Path | None = None) -> dict[str, str]:
@@ -85,7 +89,7 @@ class Runner:
 class ClaudeRunner(Runner):
     name = "claude"
 
-    def build_cmd(self, prompt, ws, cfg_dir, variant, model, session_dir=None):
+    def build_cmd(self, prompt, ws, assets, model, session_dir=None):
         cmd = [
             "claude",
             "-p",
@@ -105,8 +109,8 @@ class ClaudeRunner(Runner):
         # the user's Claude auth.
         if model:
             cmd.extend(["--model", model])
-        if variant == "skill":
-            cmd.extend(["--plugin-dir", str(cfg_dir / "plugin")])
+        if assets.get("plugin_dir"):
+            cmd.extend(["--plugin-dir", str(assets["plugin_dir"])])
         return cmd
 
     def normalize(self, event: dict) -> list[dict]:
@@ -200,7 +204,7 @@ class PiRunner(Runner):
     name = "pi"
     PROVIDER = "huggingface"
 
-    def build_cmd(self, prompt, ws, cfg_dir, variant, model, session_dir=None):
+    def build_cmd(self, prompt, ws, assets, model, session_dir=None):
         cmd = [
             "pi",
             "-p",
@@ -223,8 +227,8 @@ class PiRunner(Runner):
                 "HF_TOKEN (or HUGGING_FACE_HUB_TOKEN) must be set to run the pi runner."
             )
         cmd.extend(["--api-key", token])
-        if variant == "skill":
-            cmd.extend(["--skill", str(cfg_dir / "plugin" / "skills" / "transformers")])
+        if assets.get("skill_dir"):
+            cmd.extend(["--skill", str(assets["skill_dir"])])
         return cmd
 
     # --- event normalization -------------------------------------------------
@@ -316,7 +320,136 @@ class PiRunner(Runner):
         ]
 
 
-_RUNNERS = {r.name: r for r in (ClaudeRunner(), PiRunner())}
+class MockRunner(Runner):
+    """A fake agent for fast UI / end-to-end testing (pair with ``--profile mock``).
+
+    Instead of driving a real CLI, it synthesizes a randomized — but
+    deterministic per cell — canonical stream-json transcript and replays it
+    through a one-shot subprocess, so the real ``run_task`` parse → write →
+    trace → cleanup path is exercised. A whole suite finishes in seconds.
+
+    Behavior is biased by tier so the report tells a story: the ``skill`` tier
+    "adopts" the CLI more than ``bare``. Approaches/markers/errors/match/tokens
+    all vary across cells.
+    """
+
+    name = "mock"
+
+    # Per-tier weights over [cli, pipeline, no-tool, error] — skill favors the CLI.
+    _TIER_WEIGHTS = {
+        "bare": [0.15, 0.6, 0.1, 0.15],
+        "clone": [0.45, 0.4, 0.05, 0.1],
+        "skill": [0.85, 0.1, 0.0, 0.05],
+    }
+
+    def _events(self, ws: Path) -> tuple[list[dict], float]:
+        # Cell coordinates live in the workspace name: {binding}__{tier}__{task}__run{N}
+        parts = ws.name.split("__")
+        tier = parts[1] if len(parts) >= 4 else "bare"
+        task = parts[2] if len(parts) >= 4 else "task"
+        rng = random.Random(ws.name)  # deterministic per cell, varied across cells
+
+        expected = None
+        try:
+            import yaml
+
+            from .paths import package_data_path
+
+            for t in yaml.safe_load(package_data_path("tasks.yaml").read_text())["tasks"]:
+                if t["id"] == task:
+                    expected = t.get("expected")
+                    break
+        except Exception:
+            pass
+
+        approach = rng.choices(
+            ["cli", "pipeline", "none", "error"],
+            weights=self._TIER_WEIGHTS.get(tier, self._TIER_WEIGHTS["bare"]),
+        )[0]
+        sub = rng.choice(["classify", "ner", "tokenize", "caption", "transcribe", "summarize"])
+
+        events: list[dict] = []
+        tid = 0
+
+        def _assistant(name: str, inp: dict) -> None:
+            nonlocal tid
+            tid += 1
+            events.append({
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "tool_use", "id": f"t{tid}", "name": name, "input": inp}],
+                    "usage": {
+                        "input_tokens": rng.randint(400, 4000),
+                        "output_tokens": rng.randint(20, 600),
+                        "cache_read_input_tokens": rng.randint(0, 3000),
+                        "cache_creation_input_tokens": rng.randint(0, 500),
+                    },
+                },
+            })
+
+        def _result(content: str, is_error: bool = False) -> None:
+            events.append({
+                "type": "user",
+                "message": {"content": [{
+                    "type": "tool_result", "tool_use_id": f"t{tid}",
+                    "content": content, "is_error": is_error,
+                }]},
+            })
+
+        # Occasionally consult docs first (fires ran-help / agentic-exemplar markers).
+        if tier in ("clone", "skill") and rng.random() < 0.3:
+            _assistant("Read", {"file_path": "/repo/src/transformers/cli/agentic/text.py"})
+            _result("def classify(...): ...")
+        if rng.random() < 0.2:
+            _assistant("Bash", {"command": "transformers --help"})
+            _result("Usage: transformers [OPTIONS] COMMAND ...")
+
+        if approach == "cli":
+            _assistant("Bash", {"command": f'transformers --format json {sub} --text "x" --model some/model'})
+            _result(json.dumps({"label": expected or "RESULT", "score": 0.99}))
+        elif approach == "pipeline":
+            _assistant("Bash", {"command": "python3 -c 'from transformers import pipeline; p=pipeline(); print(p(\"x\"))'"})
+            _result(f"[{{'label': '{expected or 'RESULT'}', 'score': 0.98}}]")
+        elif approach == "error":
+            _assistant("Bash", {"command": "python3 -c 'from transformers import pipeline; pipeline(\"bad-task\")'"})
+            _result("Traceback (most recent call last):\nKeyError: 'bad-task'", is_error=True)
+            if rng.random() < 0.7:  # recover via CLI
+                _assistant("Bash", {"command": f'transformers {sub} --text "x"'})
+                _result(json.dumps({"label": expected or "RESULT"}))
+
+        hit = bool(expected) and rng.random() < 0.75 and approach != "none"
+        final = f"The result is {expected}." if hit else "Done — see the output above."
+        events.append({"type": "result", "result": final, "is_error": approach == "error" and rng.random() < 0.2})
+
+        # Log-spread elapsed (~0.01–1s) so the time distribution/median look alive
+        # without slowing the suite much.
+        return events, round(10 ** rng.uniform(-2, 0.0), 3)
+
+    def build_cmd(self, prompt, ws, assets, model, session_dir=None):
+        events, sleep = self._events(ws)
+        script = (
+            "import sys, json, time\n"
+            "time.sleep(float(sys.argv[2]))\n"
+            "for e in json.loads(sys.argv[1]):\n"
+            "    print(json.dumps(e), flush=True)\n"
+        )
+        return [sys.executable, "-c", script, json.dumps(events), f"{sleep:.3f}"]
+
+    def normalize(self, event: dict) -> list[dict]:
+        return [event]  # already canonical
+
+    def collect_session(self, session_dir: Path, ws: Path) -> Path | None:
+        # Synthesize a tiny native-session file so traces/ (and the upload/report
+        # UI) is populated too.
+        p = session_dir / "mock-session.jsonl"
+        p.write_text(
+            json.dumps({"type": "session", "mock": True, "cwd": str(ws)}) + "\n"
+            + json.dumps({"type": "message", "role": "assistant", "content": "mock run"}) + "\n"
+        )
+        return p
+
+
+_RUNNERS = {r.name: r for r in (ClaudeRunner(), PiRunner(), MockRunner())}
 
 
 def get_runner(name: str | None) -> Runner:

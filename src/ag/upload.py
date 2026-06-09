@@ -8,7 +8,7 @@ dataset directory with a ``traces``-tagged dataset card, and shells out to the
 ``hf`` CLI to upload it.
 
 **Safety:** uploads are *dry-run by default*. Nothing is pushed to the Hub
-unless ``push=True`` is passed explicitly (``isth upload ... --push``). Traces
+unless ``push=True`` is passed explicitly (``ag upload ... --push``). Traces
 can contain prompts, command output, local paths, and secrets — review them (or
 keep the dataset private) before publishing.
 """
@@ -31,7 +31,7 @@ tags:
 
 # {repo}
 
-Agent traces collected by [`isth`](https://github.com/) — headless coding-agent
+Agent traces collected by [`ag`](https://github.com/) — headless coding-agent
 runs over the `transformers` library across commits and discovery variants.
 
 - **Runner / model:** `{label}`
@@ -59,7 +59,7 @@ def stage(label: str | None, repo: str, dest: Path | None = None) -> tuple[Path,
     root = traces_dir()
     pattern = f"*/{label}/*.jsonl" if label else "*/*/*/*.jsonl"
     trace_files = sorted(p for p in root.glob(pattern) if p.is_file())
-    # Stage outside results/ and traces/ so `isth sync` doesn't pick it up.
+    # Stage outside results/ and traces/ so `ag sync` doesn't pick it up.
     staging = dest or (state_root() / f".upload__{(label or 'default').replace('/', '__')}")
     staging.mkdir(parents=True, exist_ok=True)
     for p in trace_files:

@@ -1,4 +1,4 @@
-"""``isth`` command-line interface."""
+"""``ag`` command-line interface."""
 
 from __future__ import annotations
 
@@ -9,39 +9,44 @@ from . import __version__
 
 
 def _cmd_setup(args: argparse.Namespace) -> int:
-    from .setup_commit import cleanup, setup
+    from .profile import get_profile
 
+    p = get_profile(args.profile)
     if args.remove:
+        from .setup_commit import cleanup  # transformers-specific teardown
+
         cleanup(args.ref)
     else:
-        setup(args.ref)
+        p.build(args.ref)
     return 0
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    from .compare import expand_refs
     from .log import log
     from .paths import results_dir, results_label
-    from .run_task import VARIANTS, run
+    from .profile import get_profile
+    from .run_task import run
 
-    refs = expand_refs([args.ref])  # each already resolved to a 10-char short sha
-    variants = args.variants or list(VARIANTS)
-    total = len(refs) * len(variants)
+    profile = get_profile(args.profile)
+    bindings = profile.expand_bindings([args.ref])  # canonical ids (transformers: short SHAs)
+    tiers = args.tiers or profile.all_tiers()
+    total = len(bindings) * len(tiers)
     ns = results_label(args.runner, args.model)
     done = 0
-    for ref in refs:
-        rdir = results_dir(ref, ns)
-        for variant in variants:
+    for binding in bindings:
+        rdir = results_dir(binding, ns)
+        for tier in tiers:
             done += 1
-            out = rdir / f"{variant}__{args.task}__run{args.run_index}.jsonl"
+            out = rdir / f"{tier}__{args.task}__run{args.run_index}.jsonl"
             if out.exists() and not args.force_rerun:
-                log(f"[{done}/{total}] skip (exists) {ref} {variant} {args.task} run{args.run_index}")
+                log(f"[{done}/{total}] skip (exists) {binding} {tier} {args.task} run{args.run_index}")
                 continue
-            log(f"[{done}/{total}] → {ref} {variant} {args.task} run{args.run_index}")
+            log(f"[{done}/{total}] → {binding} {tier} {args.task} run{args.run_index}")
             try:
                 run(
-                    ref,
-                    variant,
+                    profile,
+                    binding,
+                    tier,
                     args.task,
                     args.run_index,
                     model=args.model,
@@ -49,8 +54,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     runner=args.runner,
                 )
             except SystemExit as e:
-                # e.g. "skill not available for <sha>" — don't abort the loop
-                print(f"  ! {ref} {variant}: {e}", file=sys.stderr)
+                # e.g. "tier not available for <binding>" — don't abort the loop
+                print(f"  ! {binding} {tier}: {e}", file=sys.stderr)
     return 0
 
 
@@ -60,13 +65,15 @@ def _cmd_suite(args: argparse.Namespace) -> int:
 
         return submit_suite(args)
 
+    from .profile import get_profile
     from .run_suite import run_suite
 
     run_suite(
         args.ref,
+        profile=get_profile(args.profile),
         runs=args.runs,
         tasks=args.tasks,
-        variants=args.variants,
+        tiers=args.tiers,
         skip_existing=not args.force_rerun,
         model=args.model,
         max_tool_calls=args.max_tool_calls,
@@ -80,27 +87,35 @@ def _cmd_suite(args: argparse.Namespace) -> int:
 def _cmd_analyze(args: argparse.Namespace) -> int:
     from .analyze import analyze
     from .paths import results_label
+    from .profile import get_profile
 
+    p = get_profile(args.profile)
     label = results_label(args.runner, args.model)
-    print(analyze(args.sha, args.task, ns=label))
+    print(analyze(args.sha, args.task, ns=label, tiers=p.all_tiers(), markers=p.markers()))
     return 0
 
 
 def _cmd_compare(args: argparse.Namespace) -> int:
     from .compare import compare
     from .paths import results_label
+    from .profile import get_profile
 
+    p = get_profile(args.profile)
     label = results_label(args.runner, args.model)
-    print(compare(args.refs, ns=label))
+    bindings = p.expand_bindings(args.refs)
+    print(compare(bindings, ns=label, tiers=p.all_tiers(), markers=p.markers()))
     return 0
 
 
 def _cmd_explain(args: argparse.Namespace) -> int:
     from .explain import explain
     from .paths import results_label
+    from .profile import get_profile
 
+    p = get_profile(args.profile)
     label = results_label(args.runner, args.model)
-    explain(args.refs, args.variant, args.task, ns=label)
+    bindings = p.expand_bindings(args.refs)
+    explain(bindings, args.tier, args.task, ns=label, markers=p.markers())
     return 0
 
 
@@ -112,84 +127,84 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     the partial results are still comparable — earlier tasks have equal samples
     across refs.
     """
-    from .compare import compare, expand_refs
+    from .compare import compare
     from .dashboard import Dashboard, stderr_is_tty
     from .log import get_console, log
     from .paths import results_dir, results_label
-    from .run_task import VARIANTS, load_tasks, run
-    from .setup_commit import setup
+    from .profile import get_profile
+    from .run_task import load_tasks, run
     from .util import read_meta
 
+    profile = get_profile(args.profile)
     label = results_label(args.runner, args.model)
 
-    refs = expand_refs(args.spec if isinstance(args.spec, list) else [args.spec])
+    refs = profile.expand_bindings(args.spec if isinstance(args.spec, list) else [args.spec])
     if len(refs) < 2:
-        print("diff needs a spec with at least two refs (e.g. ref1..ref2)", file=sys.stderr)
+        print("diff needs a spec with at least two bindings (e.g. ref1..ref2)", file=sys.stderr)
         return 2
 
     tag = f" [{args.runner}:{args.model}]" if args.model else f" [{args.runner}]"
     log(f"diff{tag}: {' → '.join(refs)}")
 
-    # Ensure each ref is set up before the first run touches it (and record which
-    # refs can actually execute the `skill` variant).
-    skill_available: dict[str, bool] = {}
+    # Build each binding up front (and record which tiers it can actually run).
+    available_tiers: dict[str, list[str]] = {}
     for ref in refs:
-        skill_available[ref] = setup(ref)["skill_available"]
+        available_tiers[ref] = profile.build(ref).available_tiers
 
     all_tasks = load_tasks()
     selected_tasks = args.tasks or list(all_tasks.keys())
     unknown = [t for t in selected_tasks if t not in all_tasks]
     if unknown:
         raise SystemExit(f"Unknown task ids: {unknown}")
-    chosen_variants = args.variants or list(VARIANTS)
+    chosen_tiers = args.tiers or profile.all_tiers()
 
-    # Plan order: task → run_idx → variant → ref. Rationale:
+    # Plan order: task → run_idx → tier → binding. Rationale:
     #  - task-first: an interrupted diff leaves earlier tasks fully comparable
-    #    across refs and variants (your original ask).
-    #  - variant-before-ref inside a task: if *this* task is also cut short,
-    #    each completed (task, variant) cell still has equal samples across
-    #    refs — so e.g. `bare` is comparable across refs even if `clone` hasn't
-    #    started yet.
+    #    across bindings and tiers (your original ask).
+    #  - tier-before-binding inside a task: if *this* task is also cut short,
+    #    each completed (task, tier) cell still has equal samples across
+    #    bindings — so e.g. `bare` is comparable even if `clone` hasn't started.
     plan: list[tuple[str, str, str, int]] = []
     for tid in selected_tasks:
         # Explicit --runs overrides every per-task `runs:`; otherwise fall back
         # to the task's own override, then to 3.
         task_runs = args.runs if args.runs is not None else int(all_tasks[tid].get("runs") or 3)
         for run_idx in range(1, task_runs + 1):
-            for variant in chosen_variants:
+            for tier in chosen_tiers:
                 for ref in refs:
-                    if variant == "skill" and not skill_available[ref]:
+                    if tier not in available_tiers[ref]:
                         continue
-                    plan.append((ref, variant, tid, run_idx))
+                    plan.append((ref, tier, tid, run_idx))
 
     total = len(plan)
     enabled = (not args.no_live) and stderr_is_tty()
     title = (
-        f"isth diff{tag}: " + " → ".join(refs)
+        f"ag diff{tag}: " + " → ".join(refs)
         if len(refs) > 1
-        else f"isth diff{tag}: {refs[0]}"
+        else f"ag diff{tag}: {refs[0]}"
     )
     dash = Dashboard(
         refs=refs, plan=plan, console=get_console(), enabled=enabled, title=title
     )
 
     with dash.live():
-        for i, (ref, variant, tid, run_idx) in enumerate(plan, 1):
+        for i, (ref, tier, tid, run_idx) in enumerate(plan, 1):
             rdir = results_dir(ref, label)
-            out_path = rdir / f"{variant}__{tid}__run{run_idx}.jsonl"
-            meta_path = rdir / f"{variant}__{tid}__run{run_idx}.meta.json"
+            out_path = rdir / f"{tier}__{tid}__run{run_idx}.jsonl"
+            meta_path = rdir / f"{tier}__{tid}__run{run_idx}.meta.json"
             if out_path.exists() and not args.force_rerun:
-                log(f"[{i}/{total}] skip (exists) {ref} {variant} {tid} run{run_idx}")
+                log(f"[{i}/{total}] skip (exists) {ref} {tier} {tid} run{run_idx}")
                 dash.mark_skipped_existing(
-                    ref, variant, tid, run_idx, read_meta(meta_path),
+                    ref, tier, tid, run_idx, read_meta(meta_path),
                 )
                 continue
-            log(f"[{i}/{total}] → {ref} {variant} {tid} run{run_idx}")
-            dash.mark_running(ref, variant, tid, run_idx)
+            log(f"[{i}/{total}] → {ref} {tier} {tid} run{run_idx}")
+            dash.mark_running(ref, tier, tid, run_idx)
             try:
                 run(
+                    profile,
                     ref,
-                    variant,
+                    tier,
                     tid,
                     run_idx,
                     model=args.model,
@@ -198,13 +213,13 @@ def _cmd_diff(args: argparse.Namespace) -> int:
                 )
             except Exception as e:  # noqa: BLE001
                 log(f"  ! failed: {e}")
-                dash.mark_failed(ref, variant, tid, run_idx, str(e))
+                dash.mark_failed(ref, tier, tid, run_idx, str(e))
                 continue
             meta = read_meta(meta_path)
             if meta is None:
-                dash.mark_failed(ref, variant, tid, run_idx, "no meta")
+                dash.mark_failed(ref, tier, tid, run_idx, "no meta")
             else:
-                dash.mark_done(ref, variant, tid, run_idx, meta)
+                dash.mark_done(ref, tier, tid, run_idx, meta)
 
     print(compare(refs, ns=label))
     return 0
@@ -219,12 +234,15 @@ def _cmd_upload(args: argparse.Namespace) -> int:
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
-    from .compare import expand_refs
+    from .profile import get_profile
     from .report import report
 
-    refs = expand_refs(args.refs) if args.refs else None
+    p = get_profile(args.profile)
+    refs = p.expand_bindings(args.refs) if args.refs else None
     return report(
         refs,
+        markers=p.markers(),
+        profile_name=p.name,
         pull=args.pull,
         push=args.push,
         space_id=args.space,
@@ -244,6 +262,12 @@ def _cmd_sync(args: argparse.Namespace) -> int:
         private=not args.public,
         delete=args.delete,
     )
+
+
+def _cmd_batch(args: argparse.Namespace) -> int:
+    from .batch import run_batch
+
+    return run_batch(args.file, submit=args.submit, watch=args.watch, poll=args.poll)
 
 
 def _cmd_tasks(args: argparse.Namespace) -> int:  # noqa: ARG001
@@ -279,7 +303,21 @@ _RUNNER_HELP = (
 
 
 def _add_runner_flags(sp: argparse.ArgumentParser) -> None:
-    sp.add_argument("--runner", default="claude", choices=["claude", "pi"], help=_RUNNER_HELP)
+    sp.add_argument("--runner", default="claude", choices=["claude", "pi", "mock"], help=_RUNNER_HELP)
+
+
+_PROFILE_HELP = (
+    "Environment profile — what the agent runs inside and the comparison axis "
+    "(it dictates everything; the revision only varies within it). `transformers` "
+    "builds a git worktree of transformers at each revision (tiers bare/clone/skill); "
+    "`mock` is a fast fake for UI / testing."
+)
+
+
+def _add_profile_arg(sp: argparse.ArgumentParser) -> None:
+    """Add the leading required ``profile`` positional (first arg of every run /
+    read command): ``ag <command> <profile> …``."""
+    sp.add_argument("profile", help=_PROFILE_HELP)
 
 
 _RUNS_HELP = (
@@ -328,33 +366,35 @@ def _add_no_live_flag(sp: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="isth",
-        description="Measure how agents use the transformers CLI across commits.",
+        prog="ag",
+        description="Run agentic-eval task suites inside a profile's environment and score them.",
     )
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     _add_verbose_flag(p)
     sub = p.add_subparsers(dest="command", required=True)
 
-    sp = sub.add_parser("setup", help="Create/refresh the per-commit cache (venv, worktree, skill).")
-    sp.add_argument("ref", help="Git ref (SHA / branch / tag).")
+    sp = sub.add_parser("setup", help="Build/refresh a profile's environment for a revision.")
+    _add_profile_arg(sp)
+    sp.add_argument("ref", help="Revision / ref (for transformers: SHA / branch / tag).")
     sp.add_argument("--remove", action="store_true", help="Remove the cache instead.")
     sp.set_defaults(func=_cmd_setup)
 
     rp = sub.add_parser(
         "run",
-        help="Run (ref, task, run-index) across one or more variants.",
+        help="Run (profile, ref, task, run-index) across one or more tiers.",
         description=(
-            "Trailing variant tokens select which variants to run. Omit them to "
-            "run all three (bare + clone + skill). Examples:\n"
-            "  isth run HEAD classify-sentiment 1              # all variants\n"
-            "  isth run HEAD classify-sentiment 1 bare         # just bare\n"
-            "  isth run HEAD classify-sentiment 1 bare clone"
+            "Trailing tier tokens select which tiers to run. Omit them to run all "
+            "of the profile's tiers (transformers: bare + clone + skill). Examples:\n"
+            "  ag run transformers HEAD classify-sentiment 1              # all tiers\n"
+            "  ag run transformers HEAD classify-sentiment 1 bare         # just bare\n"
+            "  ag run transformers HEAD classify-sentiment 1 bare clone"
         ),
     )
+    _add_profile_arg(rp)
     rp.add_argument("ref")
     rp.add_argument("task")
     rp.add_argument("run_index", type=int)
-    rp.add_argument("variants", nargs="*", default=None, choices=["bare", "clone", "skill"])
+    rp.add_argument("tiers", nargs="*", default=None, help="Tiers to run (default: all of the profile's).")
     _add_model_flag(rp)
     _add_runner_flags(rp)
     _add_verbose_flag(rp)
@@ -362,7 +402,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_max_tool_calls_flag(rp)
     rp.set_defaults(func=_cmd_run)
 
-    suite = sub.add_parser("suite", help="Run the full task suite for a ref.")
+    suite = sub.add_parser("suite", help="Run the full task suite for a profile + revision.")
+    _add_profile_arg(suite)
     suite.add_argument("ref")
     suite.add_argument(
         "--name",
@@ -373,7 +414,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     suite.add_argument("--runs", type=int, default=None, help=_RUNS_HELP)
     suite.add_argument("--tasks", nargs="*", default=None)
-    suite.add_argument("--variants", nargs="*", default=None, choices=["bare", "clone", "skill"])
+    suite.add_argument("--tiers", nargs="*", default=None, help="Tiers to run (default: all of the profile's).")
     _add_model_flag(suite)
     _add_runner_flags(suite)
     _add_verbose_flag(suite)
@@ -403,8 +444,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     suite.set_defaults(func=_cmd_suite)
 
-    ap = sub.add_parser("analyze", help="Per-sha markdown report.")
-    ap.add_argument("sha", help="Short SHA (first 10 chars).")
+    ap = sub.add_parser("analyze", help="Per-binding markdown report.")
+    _add_profile_arg(ap)
+    ap.add_argument("sha", help="Binding id (transformers: short SHA, first 10 chars).")
     ap.add_argument("task", nargs="?", default=None)
     _add_model_flag(ap)
     _add_runner_flags(ap)
@@ -414,12 +456,13 @@ def build_parser() -> argparse.ArgumentParser:
         "compare",
         help="Side-by-side table across refs.",
         description=(
-            "Accepts refs as individual tokens (`isth compare A B C`) "
-            "or as a range (`isth compare A..B..C`). Branches / tags / SHAs / "
-            "short SHAs are all valid. Results must already exist — use `isth diff` "
+            "Accepts refs as individual tokens (`ag compare A B C`) "
+            "or as a range (`ag compare A..B..C`). Branches / tags / SHAs / "
+            "short SHAs are all valid. Results must already exist — use `ag diff` "
             "to build+compare in one shot."
         ),
     )
+    _add_profile_arg(cp)
     cp.add_argument("refs", nargs="+", help="Refs or ref-range (e.g. `A..B` or `A B C`).")
     _add_model_flag(cp)
     _add_runner_flags(cp)
@@ -434,10 +477,11 @@ def build_parser() -> argparse.ArgumentParser:
             "by default), and prints the comparison table on stdout."
         ),
     )
+    _add_profile_arg(dp)
     dp.add_argument("spec", help="Ref range like `ref1..ref2` or `A..B..C`.")
     dp.add_argument("--runs", type=int, default=None, help=_RUNS_HELP)
     dp.add_argument("--tasks", nargs="*", default=None)
-    dp.add_argument("--variants", nargs="*", default=None, choices=["bare", "clone", "skill"])
+    dp.add_argument("--tiers", nargs="*", default=None, help="Tiers to run (default: all of the profile's).")
     _add_model_flag(dp)
     _add_verbose_flag(dp)
     _add_force_rerun_flag(dp)
@@ -453,11 +497,12 @@ def build_parser() -> argparse.ArgumentParser:
             "Print, for each ref, the tool-call timeline of every run that's "
             "already on disk for the given (variant, task) cell, plus a "
             "side-by-side metric diff when two refs are given. Safe to run "
-            "while `isth diff` is still working — it only reads existing "
+            "while `ag diff` is still working — it only reads existing "
             "results files and tolerates in-flight `.jsonl` traces."
         ),
     )
-    ep.add_argument("variant", choices=["bare", "clone", "skill"])
+    _add_profile_arg(ep)
+    ep.add_argument("tier", help="Tier to drill into (e.g. bare/clone/skill for transformers).")
     ep.add_argument("task")
     ep.add_argument(
         "refs", nargs="+", help="Refs or ref-range (e.g. `A..B` or `A B C`)."
@@ -465,6 +510,23 @@ def build_parser() -> argparse.ArgumentParser:
     _add_model_flag(ep)
     _add_runner_flags(ep)
     ep.set_defaults(func=_cmd_explain)
+
+    bp = sub.add_parser(
+        "batch",
+        help="Launch a model × revision matrix of suites from a YAML file (pi cells as HF Jobs).",
+        description=(
+            "Read a YAML file declaring `profile`, `models`, and `revisions` (with "
+            "optional `name`s), expand the full model × revision matrix, and launch "
+            "each cell: pi cells as detached HF Jobs (job ids recorded under "
+            "batches/), claude cells locally. DRY-RUN by default — pass --submit to "
+            "launch, and --watch to poll the jobs until they finish and report failures."
+        ),
+    )
+    bp.add_argument("file", help="YAML batch config (profile, models, revisions, optional tasks/tiers/runs/flavor).")
+    bp.add_argument("--submit", action="store_true", help="Actually launch (default: print the plan only).")
+    bp.add_argument("--watch", action="store_true", help="After submitting, poll the jobs until done and report any failures.")
+    bp.add_argument("--poll", type=int, default=30, help="Watch poll interval in seconds (default 30).")
+    bp.set_defaults(func=_cmd_batch)
 
     tp = sub.add_parser("tasks", help="List the available task ids.")
     tp.set_defaults(func=_cmd_tasks)
@@ -532,11 +594,12 @@ def build_parser() -> argparse.ArgumentParser:
             "No flags = write locally and print the path."
         ),
     )
+    _add_profile_arg(rep)
     rep.add_argument(
         "refs",
         nargs="*",
         default=None,
-        help="Optional refs / ranges (e.g. `A..B`) to include. Default: every commit under results/.",
+        help="Optional refs / ranges (e.g. `A..B`) to include. Default: every revision under results/.",
     )
     rep.add_argument("--pull", action="store_true", help="Sync results/ down from the bucket first.")
     rep.add_argument("--push", action="store_true", help="Upload the report as a static HF Space (otherwise just print the plan).")

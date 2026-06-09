@@ -13,19 +13,13 @@ import yaml
 
 from .log import extract_usage, log, summarize_event, vlog
 from .paths import (
-    configs_dir,
     package_data_path,
     results_dir,
     results_label,
     traces_dir,
-    transformers_src,
     workspaces_dir,
 )
 from .runners import get_runner
-from .setup_commit import record_ref, resolve_sha, setup
-
-
-VARIANTS = ("bare", "clone", "skill")
 
 
 def load_tasks() -> dict:
@@ -43,43 +37,10 @@ def _redact_cmd(cmd: list[str]) -> list[str]:
     return out
 
 
-def _remove_workspace(ws: Path) -> None:
-    """Best-effort cleanup: git worktree remove, fall back to rmtree."""
-    if (ws / ".git").exists():
-        subprocess.run(
-            ["git", "-C", str(transformers_src()), "worktree", "remove", "--force", str(ws)],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    if ws.exists():
-        shutil.rmtree(ws, ignore_errors=True)
-
-
-def _prepare_workspace(short_sha: str, variant: str, task_id: str, run_idx: int, sha: str) -> Path:
-    """Create a clean workspace. For ``clone`` the workspace IS a git worktree
-    of transformers @ sha so CLAUDE.md / AGENTS.md auto-discover from cwd.
-    Otherwise the workspace is empty-but-for-inputs/."""
-    ws = workspaces_dir() / f"{short_sha}__{variant}__{task_id}__run{run_idx}"
-    if ws.exists():
-        _remove_workspace(ws)
-
-    if variant == "clone":
-        subprocess.check_call(
-            ["git", "-C", str(transformers_src()), "worktree", "add", "--detach", str(ws), sha],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    else:
-        ws.mkdir(parents=True)
-
-    shutil.copytree(package_data_path("inputs"), ws / "inputs")
-    return ws
-
-
 def run(
+    profile,
     ref: str,
-    variant: str,
+    tier: str,
     task_id: str,
     run_idx: int,
     model: str | None = None,
@@ -87,32 +48,26 @@ def run(
     runner: str = "claude",
     name: str | None = None,
 ) -> Path:
-    if variant not in VARIANTS:
-        raise SystemExit(f"Unknown variant: {variant}")
+    if tier not in profile.all_tiers():
+        raise SystemExit(f"Unknown tier {tier!r} for profile {profile.name!r}")
 
     tasks = load_tasks()
     if task_id not in tasks:
         raise SystemExit(f"Unknown task: {task_id}")
     prompt = tasks[task_id]["prompt"]
 
-    sha = resolve_sha(ref)
-    short = sha[:10]
-    record_ref(ref, sha, name)  # label the commit: branch/tag/commit + optional experiment title
-    cfg_dir = configs_dir() / short
-    if not (cfg_dir / ".ready").exists():
-        setup(ref)
-
-    if variant == "skill" and not (cfg_dir / "plugin" / "skills" / "transformers" / "SKILL.md").exists():
-        raise SystemExit(f"skill not available for {short}")
+    built = profile.build(ref, name=name)  # idempotent: reuses the cached sandbox
+    if tier not in built.available_tiers:
+        raise SystemExit(f"tier {tier!r} not available for {built.binding}")
 
     runner_impl = get_runner(runner)
-    venv_python = cfg_dir / ".venv" / "bin" / "python"
-    ws = _prepare_workspace(short, variant, task_id, run_idx, sha)
+    ws = profile.prepare_workspace(built, tier, task_id, run_idx)
+    assets = profile.agent_assets(built, tier)
 
     ns = results_label(runner, model)
-    rdir = results_dir(short, ns)
-    out_path = rdir / f"{variant}__{task_id}__run{run_idx}.jsonl"
-    meta_path = rdir / f"{variant}__{task_id}__run{run_idx}.meta.json"
+    rdir = results_dir(built.binding, ns)
+    out_path = rdir / f"{tier}__{task_id}__run{run_idx}.jsonl"
+    meta_path = rdir / f"{tier}__{task_id}__run{run_idx}.meta.json"
 
     # Per-run staging dir for the agent's *native* session. Always captured —
     # sharing traces (Hub agent-traces viewer) is the point of the harness.
@@ -121,7 +76,46 @@ def run(
         shutil.rmtree(session_dir, ignore_errors=True)
     session_dir.mkdir(parents=True)
 
-    cmd = runner_impl.build_cmd(prompt, ws, cfg_dir, variant, model, session_dir)
+    try:
+        return _run_body(
+            runner_impl, ws, built, assets, session_dir,
+            prompt, tier, task_id, run_idx, ref, ns,
+            out_path, meta_path, model, runner, max_tool_calls,
+        )
+    finally:
+        # Workspaces (e.g. a full transformers worktree for the `clone` tier) and
+        # the native-session staging dir are scratch — the run's transcript,
+        # meta, and copied trace already live under results/ + traces/. Remove
+        # them so a suite doesn't accumulate tens of GB (HF Jobs evict at 50G).
+        profile.remove_workspace(ws)
+        shutil.rmtree(session_dir, ignore_errors=True)
+
+
+def _run_body(
+    runner_impl,
+    ws: Path,
+    built,
+    assets: dict,
+    session_dir: Path,
+    prompt: str,
+    tier: str,
+    task_id: str,
+    run_idx: int,
+    ref: str,
+    ns: str | None,
+    out_path: Path,
+    meta_path: Path,
+    model: str | None,
+    runner: str,
+    max_tool_calls: int,
+) -> Path:
+    # Aliases so the recording/logging below stays identical to the pre-profile code.
+    variant = tier
+    short = built.binding
+    sha = built.extra.get("sha", built.binding)
+    venv_python = built.python
+
+    cmd = runner_impl.build_cmd(prompt, ws, assets, model, session_dir)
     model_tag = f" [{runner}:{model}]" if model else f" [{runner}]"
     log(f"▶ {short} {variant} {task_id} run{run_idx}{model_tag}   cwd={ws.name}")
 

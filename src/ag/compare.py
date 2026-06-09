@@ -16,14 +16,13 @@ from pathlib import Path
 import yaml
 
 from .analyze import (
-    VARIANTS,
-    approach_counts,
+    _DEFAULT_TIERS,
     cell,
     discover_task_ids,
     load_runs,
+    marker_fired_counts,
 )
 from .paths import package_data_path, transformers_src
-from .setup_commit import resolve_sha
 from .util import fmt_tokens
 
 
@@ -69,11 +68,15 @@ is identical across variants for a given commit; the difference is context.
 
 
 def _commit_metadata(shas: list[str]) -> str:
-    """Retrieve `{subject, author date}` for each sha via git."""
+    """Retrieve `{subject, author date}` for each sha via git (best-effort —
+    profiles without a git repo, e.g. the mock profile, just show ``?``)."""
     lines = ["## Commits compared", ""]
     lines.append("| Short SHA | Date | Subject |")
     lines.append("|---|---|---|")
-    src = transformers_src()
+    try:
+        src = transformers_src()
+    except (Exception, SystemExit):
+        src = None
     for sha in shas:
         try:
             out = subprocess.check_output(
@@ -146,36 +149,33 @@ def _metric_glossary() -> str:
 Each cell in the per-task tables uses the format:
 
 ```
-**approach** · ✓match · !failed/total · ⇢first-success · 📖docs · ⏻abort · median-time · new · repeat · out
+✓match · !failed/total · ⇢first-success · 🏷markers · ⏻abort · median-time · new · repeat · out
 ```
 
-Fields that are zero or not applicable are omitted. This report is framed
-around **ease of use** — whether the agent had an easy time using transformers
-(fewer retries, less thrashing, earlier success), not just whether it used
-the CLI. The CLI/Python split is retained but each is further split by
-whether any tool call errored (``-retry``) or not (``-clean``).
+Fields that are zero or not applicable are omitted. The report is framed
+around **ease of use** (fewer retries, less thrashing, earlier success) plus
+**behavior-marker adoption** — whether each run exhibited the behaviors the
+active profile tracks.
 
-### Approach — what path the agent took
+### 🏷 markers — behavior adoption
 
-Each run is bucketed by examining its tool-call sequence, then split by
-whether any tool call in the run returned ``is_error=true``:
+Each profile defines a set of independent **markers** (named regexes matched
+against a run's commands / written code / read paths / final answer). A run can
+fire several or none. The cell shows ``name=k/n`` for each marker that fired in
+≥1 run; the summary tables show ``fired-runs / total-runs`` per marker across
+bindings, i.e. adoption of that behavior alongside commits / model growth.
 
-- `CLI-clean=k/n` / `CLI-retry=k/n` — ran the `transformers` CLI via Bash;
-  retry variant means ≥1 errored tool call (a traceback, non-zero exit, etc.).
-- `Python-clean=k/n` / `Python-retry=k/n` — executed Python (via `python -c`,
-  `Write`+`python <file>`, or similar) without invoking the CLI; retry
-  variant means ≥1 errored tool call.
-- `no-tool=k/n` — answered with zero tool calls (from model knowledge).
-- `other=k/n` — used tools that fit no bucket above (e.g. WebFetch).
-
-Cells containing any CLI adoption are bolded.
+For the ``transformers`` profile the markers are: ``cli`` (invoked the
+`transformers` CLI), ``pipeline`` (used `pipeline(...)`), ``ran-help``
+(`transformers … --help`), ``agentic-exemplar`` (read a `cli/agentic/*.py`
+exemplar). Generic profiles may define their own or none.
 
 ### ✓match — correctness check
 
-`✓k/m` where `m` is the number of runs with an `expected` substring
-defined for the task, and `k` is the number of those runs whose final
-output contained that substring (case-insensitive). Omitted when the task
-has no `expected` field.
+`✓k/m` where `m` is the number of runs with an `expected` defined for the
+task, and `k` is the number whose final output matched it (under the task's
+``match`` mode: substring / exact / regex). Omitted when the task has no
+`expected` field.
 
 ### !failed/total — tool-call errors
 
@@ -194,20 +194,6 @@ answer earlier in its exploration. Omitted for tasks without an
 `expected` field, and for runs where the expected substring never
 appeared in a tool_result (e.g. the match came only from the final
 narrative answer).
-
-### 📖docs — which docs the agent consulted
-
-`📖` followed by any non-zero combination of:
-
-- ``agentic=k/n`` — runs that explicitly Read or Grepped a
-  ``src/transformers/cli/agentic/*.py`` exemplar.
-- ``help=k/n`` — runs that invoked ``transformers … --help``.
-- ``AGENTS.md=k/n`` / ``CLAUDE.md=k/n`` / ``SKILL.md=k/n`` — runs that
-  explicitly Read that file. These are usually loaded into the agent's
-  context automatically by variant configuration (cwd scanning for the
-  clone variant, plugin loader for the skill variant), so these fields
-  typically show zero and are omitted — explicit Reads are a rare
-  behaviour and worth flagging when they happen.
 
 ### ⏻ — runs aborted early
 
@@ -263,11 +249,11 @@ The report carries two kinds of summary:
   tasks*, because they have very different token/time profiles and
   aggregating them together lets compositional tasks dominate the
   headline numbers. Each ref gets one column.
-- **Per-variant summary** — one sub-table per variant (`bare`, `clone`,
-  `skill`) with refs as columns. Use these to ask "holding the variant
-  constant, what changed between commits?" directly.
+- **Per-tier summary** — one sub-table per tier (for `transformers`: `bare`,
+  `clone`, `skill`) with bindings as columns. Use these to ask "holding the
+  tier constant, what changed between bindings?" directly.
 
-Ratios (`cli_runs/total_runs`, `errored_calls/total_calls`,
+Ratios (`fired_runs/total_runs` per marker, `errored_calls/total_calls`,
 `matched_total/matched_seen`) preserve sample size so the reader can see
 the denominators directly. Medians are reported with IQR
 (``23s (IQR 19–28)``) when the cell has ≥4 runs; below that, the
@@ -291,21 +277,27 @@ case, so the reader is told before reading the numbers.
 # --------- per-task section (no judgment) ---------
 
 
-def _compare_task(task_id: str, shas: list[str], model: str | None = None) -> str:
+def _compare_task(
+    task_id: str,
+    shas: list[str],
+    model: str | None = None,
+    tiers: tuple[str, ...] | list[str] = _DEFAULT_TIERS,
+    markers: list | None = None,
+) -> str:
     lines = [f"### {task_id}", ""]
-    header = "| Variant | " + " | ".join(shas) + " |"
+    header = "| Tier | " + " | ".join(shas) + " |"
     sep = "|" + "|".join(["---"] * (len(shas) + 1)) + "|"
     lines.extend([header, sep])
 
     any_row = False
-    for variant in VARIANTS:
-        cells = [variant]
+    for tier in tiers:
+        cells = [tier]
         has_any = False
         for sha in shas:
-            runs = load_runs(sha, variant, task_id, model)
+            runs = load_runs(sha, tier, task_id, model)
             if runs:
                 has_any = True
-                cells.append(cell(runs))
+                cells.append(cell(runs, markers))
             else:
                 cells.append("—")
         if has_any:
@@ -317,29 +309,6 @@ def _compare_task(task_id: str, shas: list[str], model: str | None = None) -> st
 
 
 # --------- summary ---------
-
-
-def expand_refs(refs: list[str]) -> list[str]:
-    """Expand `ref1..ref2..refN` tokens and resolve everything to short SHAs."""
-    expanded: list[str] = []
-    for token in refs:
-        if ".." in token:
-            expanded.extend(part for part in token.split("..") if part)
-        else:
-            expanded.append(token)
-    out: list[str] = []
-    for ref in expanded:
-        if len(ref) >= 10 and all(c in "0123456789abcdef" for c in ref.lower()):
-            out.append(ref[:10])
-        else:
-            out.append(resolve_sha(ref)[:10])
-    seen: set[str] = set()
-    unique: list[str] = []
-    for s in out:
-        if s not in seen:
-            seen.add(s)
-            unique.append(s)
-    return unique
 
 
 def _task_categories() -> dict[str, str]:
@@ -377,15 +346,17 @@ def _aggregate(
     task_ids: list[str],
     variants: list[str],
     model: str | None,
+    markers: list | None = None,
 ) -> dict:
-    """Aggregate every run for (sha, tasks ∈ task_ids, variant ∈ variants)."""
+    """Aggregate every run for (sha, tasks ∈ task_ids, tier ∈ variants)."""
+    markers = markers or []
     total_runs = 0
     total_calls = 0
     errored_calls = 0
     runs_with_errors = 0
     aborted_budget = 0
     aborted_timeout = 0
-    bucket_runs: dict[str, int] = {}
+    marker_runs: dict[str, int] = {m.name: 0 for m in markers}
     matched_total = 0
     matched_seen = 0
     elapsed_all: list[float] = []
@@ -399,8 +370,8 @@ def _aggregate(
             if not runs:
                 continue
             total_runs += len(runs)
-            for k, v in approach_counts(runs).items():
-                bucket_runs[k] = bucket_runs.get(k, 0) + v
+            for k, v in marker_fired_counts(runs, markers).items():
+                marker_runs[k] = marker_runs.get(k, 0) + v
             for r in runs:
                 total_calls += len(r.tool_calls)
                 errored_calls += r.errored_calls
@@ -426,7 +397,7 @@ def _aggregate(
         "runs_with_errors": runs_with_errors,
         "aborted_budget": aborted_budget,
         "aborted_timeout": aborted_timeout,
-        "bucket_runs": bucket_runs,
+        "marker_runs": marker_runs,
         "matched_total": matched_total,
         "matched_seen": matched_seen,
         "elapsed_iqr": _iqr(elapsed_all),
@@ -439,20 +410,14 @@ def _aggregate(
     }
 
 
-def _render_summary(title: str, rows: list[tuple[str, dict]], note: str = "") -> str:
+def _render_summary(
+    title: str, rows: list[tuple[str, dict]], note: str = "", markers: list | None = None
+) -> str:
     """Render a summary table from pre-aggregated rows: [(column_label, agg_dict), ...]."""
-
-    def _bucket_sum(d: dict, *keys: str) -> int:
-        return sum(d["bucket_runs"].get(k, 0) for k in keys)
+    markers = markers or []
 
     def _ratio_col(num_key: str, den_key: str) -> list[str]:
         return [f"{d[num_key]}/{d[den_key]}" if d[den_key] else "—" for _, d in rows]
-
-    def _bucket_ratio(d: dict, *keys: str) -> str:
-        tot = d["total_runs"]
-        if not tot:
-            return "—"
-        return f"{_bucket_sum(d, *keys)}/{tot}"
 
     lines = [f"## {title}", ""]
     if note:
@@ -461,31 +426,15 @@ def _render_summary(title: str, rows: list[tuple[str, dict]], note: str = "") ->
     lines.append("| Metric | " + " | ".join(label for label, _ in rows) + " |")
     lines.append("|" + "|".join(["---"] * (len(rows) + 1)) + "|")
     lines.append("| runs | " + " | ".join(str(d["total_runs"]) for _, d in rows) + " |")
-    def _bucket_cell(d: dict, clean_key: str, retry_key: str) -> str:
-        if not d["total_runs"]:
-            return "—"
-        return (
-            f"{_bucket_ratio(d, clean_key, retry_key)} "
-            f"({_bucket_sum(d, clean_key)} clean / {_bucket_sum(d, retry_key)} retry)"
-        )
 
-    lines.append(
-        "| CLI adoption (clean + retry) | "
-        + " | ".join(_bucket_cell(d, "CLI-clean", "CLI-retry") for _, d in rows) + " |"
-    )
-    lines.append(
-        "| Python (clean + retry) | "
-        + " | ".join(_bucket_cell(d, "Python-clean", "Python-retry") for _, d in rows) + " |"
-    )
-    lines.append(
-        "| no-tool / other | "
-        + " | ".join(
-            "—" if not d["total_runs"]
-            else f"{_bucket_sum(d, 'no-tool')} / {_bucket_sum(d, 'other')}"
+    # One adoption row per behavior marker: fired-runs / total-runs across bindings.
+    for m in markers:
+        cells = [
+            "—" if not d["total_runs"] else f"{d['marker_runs'].get(m.name, 0)}/{d['total_runs']}"
             for _, d in rows
-        )
-        + " |"
-    )
+        ]
+        lines.append(f"| 🏷 `{m.name}` adoption | " + " | ".join(cells) + " |")
+
     lines.append(
         "| runs where final output matched `expected` | "
         + " | ".join(_ratio_col("matched_total", "matched_seen")) + " |"
@@ -550,54 +499,52 @@ def _coverage_note(
 
 
 def _headline_summary(
-    shas: list[str], task_ids: list[str], model: str | None
+    shas: list[str], task_ids: list[str], model: str | None,
+    tiers: tuple[str, ...] | list[str], markers: list | None,
 ) -> str:
     """Two tables: atomic-tasks-only, then compositional-tasks-only."""
     cats = _task_categories()
     atomic = [t for t in task_ids if cats.get(t) == "atomic"]
     compositional = [t for t in task_ids if cats.get(t) == "compositional"]
+    tiers = list(tiers)
 
     parts: list[str] = []
-    if atomic:
-        rows = [(s, _aggregate(s, atomic, list(VARIANTS), model)) for s in shas]
+    for label, subset in (("atomic", atomic), ("compositional", compositional)):
+        if not subset:
+            continue
+        rows = [(s, _aggregate(s, subset, tiers, model, markers)) for s in shas]
         parts.append(
             _render_summary(
-                "Summary — atomic tasks",
+                f"Summary — {label} tasks",
                 rows,
-                _coverage_note(shas, atomic, list(VARIANTS), model),
-            )
-        )
-    if compositional:
-        rows = [(s, _aggregate(s, compositional, list(VARIANTS), model)) for s in shas]
-        parts.append(
-            _render_summary(
-                "Summary — compositional tasks",
-                rows,
-                _coverage_note(shas, compositional, list(VARIANTS), model),
+                _coverage_note(shas, subset, tiers, model),
+                markers,
             )
         )
     return "\n".join(parts)
 
 
-def _per_variant_summary(
-    shas: list[str], task_ids: list[str], model: str | None
+def _per_tier_summary(
+    shas: list[str], task_ids: list[str], model: str | None,
+    tiers: tuple[str, ...] | list[str], markers: list | None,
 ) -> str:
-    """One summary table per variant (bare / clone / skill), commits as columns."""
-    parts = ["## Per-variant summary", ""]
+    """One summary table per tier, bindings as columns."""
+    parts = ["## Per-tier summary", ""]
     parts.append(
-        "Holding the variant constant, how did behaviour change between commits? "
-        "Each sub-table aggregates across all tasks for one variant."
+        "Holding the tier constant, how did behaviour change between bindings? "
+        "Each sub-table aggregates across all tasks for one tier."
     )
     parts.append("")
-    for variant in VARIANTS:
-        rows = [(s, _aggregate(s, task_ids, [variant], model)) for s in shas]
+    for tier in tiers:
+        rows = [(s, _aggregate(s, task_ids, [tier], model, markers)) for s in shas]
         if not any(d["total_runs"] for _, d in rows):
             continue
         parts.append(
             _render_summary(
-                f"Variant: {variant}",
+                f"Tier: {tier}",
                 rows,
-                _coverage_note(shas, task_ids, [variant], model),
+                _coverage_note(shas, task_ids, [tier], model),
+                markers,
             )
         )
     return "\n".join(parts)
@@ -606,15 +553,20 @@ def _per_variant_summary(
 # --------- top-level ---------
 
 
-def compare(refs: list[str], ns: str | None = None) -> str:
-    shas = expand_refs(refs)
+def compare(
+    refs: list[str],
+    ns: str | None = None,
+    tiers: tuple[str, ...] | list[str] = _DEFAULT_TIERS,
+    markers: list | None = None,
+) -> str:
+    shas = list(dict.fromkeys(refs))  # already-expanded bindings (the CLI expands via the profile)
     if len(shas) < 2:
         return "compare needs at least two distinct refs"
     task_ids = sorted(set().union(*(discover_task_ids(s, ns) for s in shas)))
     if not task_ids:
         return f"No results for any of: {shas}"
 
-    header = f"# transformers agent behavior: {' → '.join(shas)}"
+    header = f"# agent behavior: {' → '.join(shas)}"
     if ns:
         header += f"  [{ns}]"
 
@@ -624,12 +576,12 @@ def compare(refs: list[str], ns: str | None = None) -> str:
     out.append(_commit_metadata(shas))
     out.append(_tasks_section())
     out.append(_metric_glossary())
-    out.append(_headline_summary(shas, task_ids, ns))
-    out.append(_per_variant_summary(shas, task_ids, ns))
+    out.append(_headline_summary(shas, task_ids, ns, tiers, markers))
+    out.append(_per_tier_summary(shas, task_ids, ns, tiers, markers))
     out.append("## Per-task results")
     out.append("")
     for tid in task_ids:
-        section = _compare_task(tid, shas, ns)
+        section = _compare_task(tid, shas, ns, tiers, markers)
         if section:
             out.append(section)
     return "\n".join(out)

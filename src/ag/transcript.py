@@ -1,14 +1,14 @@
 """Shared parsing of a normalized stream-json run transcript.
 
-Both the per-commit report (:mod:`isth.analyze`) and the per-cell drill-down
-(:mod:`isth.explain`) need the same thing from a run's ``.jsonl``: the ordered
+Both the per-commit report (:mod:`ag.analyze`) and the per-cell drill-down
+(:mod:`ag.explain`) need the same thing from a run's ``.jsonl``: the ordered
 sequence of tool calls, each paired with its ``tool_result`` (content +
 ``is_error``), plus the final answer. This module is the single place that walks
 the file and pairs ``tool_use`` ↔ ``tool_result`` by id; the two readers build
 their own views on top of :class:`Transcript`.
 
 The walk tolerates in-flight writes (a partial final line) and missing files, so
-it is safe to call while ``isth diff`` is still producing the file.
+it is safe to call while ``ag diff`` is still producing the file.
 """
 
 from __future__ import annotations

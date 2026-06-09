@@ -1,24 +1,31 @@
-# `isth` CLI reference
+# `ag` CLI reference
 
-Full reference for every `isth` subcommand. For a high-level overview of
-what the harness measures and the three discovery conditions
-(`bare` / `clone` / `skill`) see [README.md](./README.md); for safety
-properties see [SECURITY.md](./SECURITY.md).
+Full reference for every `ag` subcommand. For a high-level overview of the
+harness — profiles, tiers, markers, matching — see [README.md](./README.md);
+for safety properties see [SECURITY.md](./SECURITY.md).
 
-`isth` exposes a handful of subcommands grouped by purpose. Runs are stored
-commit-first as `results/<commit>/<harness>/<model_id>/<variant>__<task>__runN.jsonl`
+`ag` is profile-based: the first positional `<profile>` defines the **environment** and the
+comparison axis (its **bindings**), and the **tiers** ("how much help the agent
+gets"). The default `transformers` profile uses git revisions as bindings and
+`bare`/`clone`/`skill` as tiers; the `mock` profile is a fast fake for UI / E2E
+testing. Runs are stored binding-first as
+`results/<binding>/<harness>/<model_id>/<tier>__<task>__runN.jsonl`
 (see [Result layout](./README.md#result-layout)), so runs from different
-commits, harnesses, and models never collide. `--model <name>` selects the
-`<model_id>` component (it defaults to `default` for Claude when omitted).
+bindings, harnesses, and models never collide.
 
 ## Common flags
 
 These appear on most run-producing subcommands:
 
-- `--runner {claude,pi}` — which coding agent drives each run. `claude`
+- `<profile>` (first positional, required) — the environment profile
+  (`transformers` or `mock`). Determines how the sandbox is built, what the
+  bindings/tiers are, and which behavior markers the report tracks. Every run/
+  read command is `ag <command> <profile> …`.
+- `--runner {claude,pi,mock}` — which coding agent drives each run. `claude`
   (default) shells out to the `claude` CLI (your configured Claude model);
   `pi` shells out to the `pi` CLI, which serves the `--model` via Hugging
-  Face inference providers.
+  Face inference providers; `mock` synthesizes fake transcripts instantly
+  (pair with the `mock` profile).
 - `--model <name>` — the model id. For `--runner claude` it is a Claude
   alias/id (`opus`, `claude-sonnet-4-6`) passed to `claude --model`. For
   `--runner pi` it is an HF model id (`Qwen/Qwen3-Coder-480B-A35B-Instruct`).
@@ -41,15 +48,15 @@ These appear on most run-producing subcommands:
 
 ## Setup / discovery
 
-### `isth tasks`
+### `ag tasks`
 
 List the 8 task ids and their categories (`atomic` / `compositional`).
 
 ```bash
-isth tasks
+ag tasks
 ```
 
-### `isth setup <ref> [--remove]`
+### `ag setup <profile> <ref> [--remove]`
 
 Build (or remove) the per-commit cache for one ref. Idempotent: rerunning
 on an already-built cache is a no-op. Each cache contains:
@@ -64,30 +71,30 @@ on an already-built cache is a no-op. Each cache contains:
 - `configs/<short-sha>/.ready` — a sentinel.
 
 ```bash
-isth setup HEAD                # build
-isth setup 9914a3641f --remove # tear down (~2 GB freed)
+ag setup transformers HEAD                # build
+ag setup transformers 9914a3641f --remove # tear down (~2 GB freed)
 ```
 
-Called implicitly by `isth run` / `isth suite` / `isth diff` if needed,
+Called implicitly by `ag run` / `ag suite` / `ag diff` if needed,
 but you can prebuild caches in parallel before kicking off a long suite.
 
 ## Running
 
-### `isth run <ref> <task_id> <run_index> [variants...]`
+### `ag run <profile> <ref> <task_id> <run_index> [tiers...]`
 
 Execute exactly one run, or one run per variant. Cheap to use for ad-hoc
 probing of a single (commit, task) cell.
 
 ```bash
-isth run HEAD classify-sentiment 1                # all 3 variants
-isth run HEAD classify-sentiment 1 bare           # just bare
-isth run HEAD classify-sentiment 1 bare clone     # two variants
+ag run transformers HEAD classify-sentiment 1                # all 3 variants
+ag run transformers HEAD classify-sentiment 1 bare           # just bare
+ag run transformers HEAD classify-sentiment 1 bare clone     # two variants
 ```
 
 Accepts the common flags above. Skips a cell if its `.jsonl` already
 exists unless `--force-rerun` is set.
 
-### `isth suite <ref> [--runs N] [--tasks ...] [--variants ...]`
+### `ag suite <profile> <ref> [--runs N] [--tasks ...] [--tiers ...]`
 
 Run the full task suite for **one** commit (3 variants × 8 tasks). `<ref>`
 can be a SHA, a branch name, or a tag (`main`, `v4.56.0`, …) — what it was
@@ -102,10 +109,10 @@ runs per cell is resolved per task: an explicit `--runs N`
 each task uses its own `runs:` (cheap tasks default to 5) or 3 if it has none.
 
 ```bash
-isth suite HEAD                                   # per-task runs: (or 3)
-isth suite HEAD --variants skill --tasks summarize-text caption-image
-isth suite HEAD --runs 5                          # force 5 for ALL tasks
-isth suite HEAD --runner pi --model <hf-id> --job # run it on HF Jobs instead
+ag suite transformers HEAD                                   # per-task runs: (or 3)
+ag suite transformers HEAD --tiers skill --tasks summarize-text caption-image
+ag suite transformers HEAD --runs 5                          # force 5 for ALL tasks
+ag suite transformers HEAD --runner pi --model <hf-id> --job # run it on HF Jobs instead
 ```
 
 **`--job` — run on HF Jobs.** Submits the suite as a detached
@@ -115,21 +122,22 @@ executing locally. The job bootstraps uv + the `pi` CLI + clones of
 (results land in it directly, no upload step), and seeds local `results/`
 from the bucket first so completed cells are skipped — resubmitting after an
 interruption resumes where it left off. Tune with `--flavor` (default
-`t4-small`), `--timeout` (default `4h`; HF's own default is 30m), `--image`
+`t4-medium`, 100 GB ephemeral; `t4-small`'s 50 GB evicts under the HF model
+cache), `--timeout` (default `4h`; HF's own default is 30m), `--image`
 (default `node:22-bookworm`; any apt-capable image works), `--bucket`.
 Requires `--runner pi` + `--model` (the `claude` CLI can't authenticate on
 Jobs) and passes your `HF_TOKEN` as the job secret. Branch/tag refs are
 validated against the GitHub remote at submit time (`git ls-remote`) with
 did-you-mean suggestions, so a typo'd ref fails in ~1s locally instead of
 minutes into a paid job. Track with `hf jobs ps` / `hf jobs logs <id>`;
-pull results with `isth report --pull`.
+pull results with `ag report transformers --pull`.
 
 Progress shows in the rich dashboard: a panel header, a counters line,
 and a table with rows = (task, variant) and one column for the ref.
 Log lines (`[3/72] → ...`) scroll above. With `-v`, every tool call is
 logged.
 
-### `isth diff <spec> [--runs N] [--tasks ...] [--variants ...]`
+### `ag diff <profile> <spec> [--runs N] [--tasks ...] [--tiers ...]`
 
 The **end-to-end** path: takes a ref range (`A..B` or `A..B..C`),
 ensures every commit's cache is built, runs the suite for each, and
@@ -138,8 +146,8 @@ run for an actual before/after measurement — no need to invoke `setup` /
 `suite` / `compare` separately.
 
 ```bash
-isth diff 0ea540efff..59e4754341 > progress.md
-isth diff A..B..C --runs 5 --tasks summarize-text caption-image
+ag diff transformers 0ea540efff..59e4754341 > progress.md
+ag diff transformers A..B..C --runs 5 --tasks summarize-text caption-image
 ```
 
 Iteration order is **task-first**: each task completes on all
@@ -151,7 +159,7 @@ The rich dashboard lights up with rows = (task, variant) and one
 column per ref; cells fill in as runs finish, color-coded green/red
 row-relative (best/worst across refs) on median time and tool count,
 with `⏻` / `!` flags for aborted / failed runs. While it's running,
-you can introspect any cell from another terminal with `isth explain`
+you can introspect any cell from another terminal with `ag explain`
 (see below).
 
 ## Inspection
@@ -162,18 +170,18 @@ is in progress**
 — they tolerate in-flight `.jsonl` files (last-line partial writes) and
 missing `.meta.json` sidecars.
 
-### `isth analyze <short-sha> [task_id]`
+### `ag analyze <profile> <short-sha> [task_id]`
 
 Per-commit markdown report. With a task id, only that task; without one,
 every task that has results for the given SHA. Useful as a single-commit
 deep dive before/after a `compare`.
 
 ```bash
-isth analyze 59e4754341
-isth analyze 59e4754341 caption-image --model sonnet > caption.md
+ag analyze transformers 59e4754341
+ag analyze transformers 59e4754341 caption-image --model sonnet > caption.md
 ```
 
-### `isth compare <refs...>`
+### `ag compare <profile> <refs...>`
 
 Side-by-side comparison across two or more refs already on disk.
 Produces the self-describing markdown report (preamble + variant
@@ -181,23 +189,23 @@ definitions + commit metadata + metric glossary + headline + per-variant
 summaries + per-task tables) that the worked example in the README shows.
 
 ```bash
-isth compare 0ea540efff 59e4754341 > progress.md
-isth compare 9914a3641f..03836b6ec6..8135eabc1c
+ag compare transformers 0ea540efff 59e4754341 > progress.md
+ag compare transformers 9914a3641f..03836b6ec6..8135eabc1c
 ```
 
 Accepts refs as separate tokens or as a `A..B..C` range (same as `diff`).
-Results must already exist; use `isth diff` to build + compare in one
+Results must already exist; use `ag diff` to build + compare in one
 shot.
 
-### `isth explain <variant> <task> <refs...>`
+### `ag explain <profile> <tier> <task> <refs...>`
 
 Focused per-cell timeline for **one** (variant, task) cell across one or
 more refs. The drill-down complement to `compare` — when a cell looks
 weird in the dashboard, this is what you run to find out *why*.
 
 ```bash
-isth explain bare summarize-text 0ea540efff..59e4754341 --model sonnet-old
-isth explain skill caption-image 59e4754341
+ag explain transformers bare summarize-text 0ea540efff..59e4754341 --model sonnet-old
+ag explain transformers skill caption-image 59e4754341
 ```
 
 For each ref it prints, per run on disk:
@@ -218,7 +226,7 @@ data, lists them so you can pick).
 
 ## Trace upload
 
-### `isth upload <user>/<dataset>`
+### `ag upload <user>/<dataset>`
 
 Upload the native agent session files captured under
 `traces/<commit>/<harness>/<model_id>/`
@@ -230,10 +238,10 @@ namespace.
 
 ```bash
 # run the suite (native sessions are captured automatically) …
-isth suite 59e4754341 --runner pi --model <id>
+ag suite transformers 59e4754341 --runner pi --model <id>
 # … then upload them
-isth upload me/transformers-agent-traces --runner pi --model <id>          # DRY RUN
-isth upload me/transformers-agent-traces --runner pi --model <id> --push   # upload
+ag upload me/transformers-agent-traces --runner pi --model <id>          # DRY RUN
+ag upload me/transformers-agent-traces --runner pi --model <id> --push   # upload
 ```
 
 - **Dry-run by default.** Without `--push` it stages the files, writes a
@@ -246,7 +254,7 @@ isth upload me/transformers-agent-traces --runner pi --model <id> --push   # upl
 
 ## Bucket sync
 
-### `isth sync [<namespace>/<bucket>]`
+### `ag sync [<namespace>/<bucket>]`
 
 Mirror the local run state with a Hugging Face
 [**bucket**](https://huggingface.co/docs/huggingface_hub/en/guides/buckets)
@@ -258,11 +266,11 @@ packages traces for one namespace as a standalone dataset), `sync` mirrors the
 cells present). The bucket id defaults to `lysandre/transformers-agentic-use`.
 
 ```bash
-isth sync                       # DRY RUN: refresh the manifest + print the sync plan
-isth sync --push                # create bucket if needed + sync results/ + traces/ up
-isth sync --pull                # sync results/ + traces/ back down
-isth sync me/other-bucket --push  # target a different bucket
-isth sync --push --delete       # prune bucket files no longer present locally
+ag sync                       # DRY RUN: refresh the manifest + print the sync plan
+ag sync --push                # create bucket if needed + sync results/ + traces/ up
+ag sync --pull                # sync results/ + traces/ back down
+ag sync me/other-bucket --push  # target a different bucket
+ag sync --push --delete       # prune bucket files no longer present locally
 ```
 
 - **Dry-run by default.** Without `--push`/`--pull` it (re)writes
@@ -284,7 +292,7 @@ Requires the `hf` CLI (`huggingface_hub` with bucket support) and
 
 ## Report
 
-### `isth report [refs...]`
+### `ag report <profile> [refs...]`
 
 Generate a **self-contained static HTML report** over the runs under
 `results/` — a single `report/index.html`, organized **commit-first** so the
@@ -315,13 +323,13 @@ being a plain static file. All parsing reuses the same code paths as
 `analyze`/`explain` — numbers always agree across the three views.
 
 ```bash
-isth report                     # all commits on disk → report/index.html
-isth report 0f0036c888          # restrict to specific refs / ranges
-isth report --pull --open       # bucket → local → report → browser
-isth report --push              # publish as a private static HF Space
+ag report transformers                     # all commits on disk → report/index.html
+ag report transformers 0f0036c888          # restrict to specific refs / ranges
+ag report transformers --pull --open       # bucket → local → report → browser
+ag report transformers --push              # publish as a private static HF Space
 ```
 
-- `--pull` — run the bucket pull (`isth sync --pull`) first.
+- `--pull` — run the bucket pull (`ag sync --pull`) first.
 - `--push` — upload `report/` as a **static HF Space** (default id
   `lysandre/transformers-agentic-use-report`, override with `--space`);
   otherwise the upload plan is only printed. Spaces are **private** unless
@@ -341,18 +349,18 @@ Three typical entry points:
 
 ```bash
 # 1. End-to-end: run + compare in one command (most common).
-isth diff 0ea540efff..59e4754341 > progress.md
+ag diff transformers 0ea540efff..59e4754341 > progress.md
 
 # 2. Stage by stage, e.g. when you want to inspect intermediate state.
-isth setup 0ea540efff
-isth setup 59e4754341
-isth suite 0ea540efff
-isth suite 59e4754341
-isth compare 0ea540efff 59e4754341 > progress.md
+ag setup transformers 0ea540efff
+ag setup transformers 59e4754341
+ag suite transformers 0ea540efff
+ag suite transformers 59e4754341
+ag compare transformers 0ea540efff 59e4754341 > progress.md
 
 # 3. Add a third commit to an existing comparison without re-running A vs B.
-isth suite 03836b6ec6
-isth compare 0ea540efff 03836b6ec6 59e4754341 > progress.md
+ag suite transformers 03836b6ec6
+ag compare transformers 0ea540efff 03836b6ec6 59e4754341 > progress.md
 ```
 
 `compare` (and the comparison appended by `diff`) produces one table per

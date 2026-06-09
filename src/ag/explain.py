@@ -1,7 +1,7 @@
-"""``isth explain`` — focused, per-cell breakdown for one (variant, task) cell
+"""``ag explain`` — focused, per-cell breakdown for one (variant, task) cell
 across one or more refs.
 
-Designed to be safe to run **while ``isth diff`` is still working**: it only
+Designed to be safe to run **while ``ag diff`` is still working**: it only
 reads ``results/<model>/`` files that already exist on disk, tolerates
 in-flight ``.jsonl`` files whose final line might be a partial write, and
 treats missing ``.meta.json`` sidecars as "run still in progress".
@@ -17,14 +17,15 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from .analyze import _task_expectations, bucket
-from .compare import expand_refs
+from .analyze import _task_expectations, step_kind
+from .markers import fired as _markers_fired
 from .log import get_console
 from .paths import results_dir, state_root
 from .transcript import parse_transcript
@@ -39,7 +40,7 @@ class Step:
     idx: int  # 1-based tool call index
     name: str  # Tool name (Bash, Read, Write, ...)
     inp: dict
-    bucket: str  # output of analyze.bucket(name, inp)
+    kind: str  # neutral per-step label (analyze.step_kind)
     is_error: bool
     result_snippet: str  # first non-empty line of the tool_result, truncated
 
@@ -83,7 +84,7 @@ def _parse_run(jsonl_path: Path, task_id: str, run_index: int) -> CellRun:
                 idx=i,
                 name=s.name,
                 inp=s.input,
-                bucket=bucket(s.name, s.input),
+                kind=step_kind(s.name, s.input),
                 is_error=s.is_error,
                 result_snippet=_trunc(snippet, 140),
             )
@@ -191,7 +192,7 @@ def _print_run(console, run: CellRun) -> None:
         line.append(f"   {marker} {step.idx:2}  ")
         line.append(f"{step.name:<8} ", style="cyan")
         line.append(_short_input(step.name, step.inp))
-        line.append(f"   [{step.bucket}]", style="dim")
+        line.append(f"   [{step.kind}]", style="dim")
         console.print(line)
         if step.is_error and step.result_snippet:
             console.print(Text(f"          ↳ {step.result_snippet}", style="red"))
@@ -214,36 +215,39 @@ def _print_run(console, run: CellRun) -> None:
     console.print("")
 
 
-def _approach_summary(runs: list[CellRun]) -> str:
-    """Compact approach bucket string (CLI-clean=2/3 etc.) for finished runs."""
+def _cellrun_markers(run: CellRun, markers: list) -> dict[str, bool]:
+    """Fire ``markers`` against a CellRun (adapts its steps to the Run shape
+    markers.fired expects). Result snippets are truncated, but the markers we
+    ship key off tool *inputs* (commands/paths), which are kept in full."""
+    adapter = SimpleNamespace(
+        tool_calls=[(s.name, s.inp) for s in run.steps],
+        tool_results=[s.result_snippet for s in run.steps],
+        final=run.final,
+    )
+    return _markers_fired(markers, adapter)
+
+
+def _markers_summary(runs: list[CellRun], markers: list | None) -> str:
+    """Compact per-marker adoption (``cli=2/3 pipeline=1/3``) for finished runs."""
     from collections import Counter
 
-    if not runs:
-        return "—"
-    # Mirror analyze._run_path semantics on our Step list.
-    counts: Counter[str] = Counter()
+    markers = markers or []
     finished = [r for r in runs if r.status not in ("in-flight", "broken-trace")]
-    for r in finished:
-        seen = {s.bucket for s in r.steps}
-        if "CLI" in seen:
-            path = "CLI"
-        elif any(b.startswith(("python ", "write .py")) for b in seen):
-            path = "Python"
-        elif not r.steps:
-            path = "no-tool"
-        else:
-            path = "other"
-        if path in ("CLI", "Python"):
-            counts[f"{path}-{'retry' if r.errored_calls else 'clean'}"] += 1
-        else:
-            counts[path] += 1
     n = len(finished)
     if n == 0:
         return "(no finished runs yet)"
-    return "  ".join(f"{k}={v}/{n}" for k, v in counts.items())
+    if not markers:
+        return f"{n} finished"
+    counts: Counter[str] = Counter()
+    for r in finished:
+        for name, hit in _cellrun_markers(r, markers).items():
+            if hit:
+                counts[name] += 1
+    fired_parts = [f"{name}={c}/{n}" for name, c in counts.items() if c]
+    return "  ".join(fired_parts) if fired_parts else f"{n} finished (no markers fired)"
 
 
-def _diff_table(refs: list[str], by_ref: dict[str, list[CellRun]]) -> Table:
+def _diff_table(refs: list[str], by_ref: dict[str, list[CellRun]], markers: list | None = None) -> Table:
     """Side-by-side metric diff for two refs."""
     a, b = refs[0], refs[-1]
     runs_a, runs_b = by_ref[a], by_ref[b]
@@ -260,7 +264,7 @@ def _diff_table(refs: list[str], by_ref: dict[str, list[CellRun]]) -> Table:
         match_total = sum(1 for r in finished if r.matched_expected is not None)
         match_ok = sum(1 for r in finished if r.matched_expected is True)
         return {
-            "approach": _approach_summary(runs),
+            "markers": _markers_summary(runs, markers),
             "errors": f"{total_err}/{total_calls}" if total_calls else "—",
             "median time": f"{med_t:.0f}s" if med_t is not None else "—",
             "median tools": f"{med_tc:.0f}" if med_tc is not None else "—",
@@ -282,7 +286,7 @@ def _diff_table(refs: list[str], by_ref: dict[str, list[CellRun]]) -> Table:
 
     for key in (
         "runs available",
-        "approach",
+        "markers",
         "errors",
         "median time",
         "median tools",
@@ -355,9 +359,10 @@ def explain(
     task: str,
     *,
     ns: str | None = None,
+    markers: list | None = None,
 ) -> None:
     console = get_console()
-    refs_resolved = expand_refs(refs)
+    refs_resolved = list(dict.fromkeys(refs))  # already-expanded bindings (CLI expands via the profile)
 
     # `ns` here is the <harness>/<model_id> namespace. If it has nothing for
     # this cell, look for a single namespace that does and silently switch to it
@@ -412,7 +417,7 @@ def explain(
             console.print(Text("  (no completed runs yet)", style="dim"))
             console.print("")
             continue
-        summary = _approach_summary(runs)
+        summary = _markers_summary(runs, markers)
         console.print(Text(f"  summary  {summary}", style="bold"))
         console.print("")
         for run in runs:
@@ -420,7 +425,7 @@ def explain(
 
     if len(refs_resolved) >= 2:
         console.print(Rule("[bold]Diff[/bold]", style="cyan"))
-        console.print(_diff_table(refs_resolved, by_ref))
+        console.print(_diff_table(refs_resolved, by_ref, markers))
         console.print("")
 
     # Trace paths for hand-off.

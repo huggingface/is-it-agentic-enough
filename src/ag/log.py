@@ -1,7 +1,7 @@
 """Small helpers for live, timestamped progress output.
 
 Everything goes to stderr so stdout stays clean for tools that pipe the
-report (``isth analyze ... > report.md``). Timestamps are seconds since
+report (``ag analyze ... > report.md``). Timestamps are seconds since
 the current process started, which is what you actually want to know
 when watching a run in progress.
 

@@ -1,4 +1,4 @@
-"""Live, rich-rendered progress dashboard for `isth diff` / `isth suite`.
+"""Live, rich-rendered progress dashboard for `ag diff` / `ag suite`.
 
 The dashboard maintains an in-memory matrix of cells indexed by
 ``(task, variant, ref)``. Each cell aggregates the runs scheduled for it:
@@ -46,7 +46,6 @@ class CellAgg:
     runs_failed: int = 0  # run() raised before producing meta
     elapsed_secs: list[float] = field(default_factory=list)
     tool_calls: list[int] = field(default_factory=list)
-    errors: int = 0  # is_error tool results, summed across runs
     aborted: int = 0  # runs killed for budget / timeout
     errored: int = 0  # runs that finished in an error state (nonzero exit / is_error)
     running: bool = False

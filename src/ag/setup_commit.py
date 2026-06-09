@@ -143,7 +143,7 @@ def resolve_sha(ref: str) -> str:
     if "\n" in out:
         raise SystemExit(
             f"`{ref}` did not resolve to a single commit (got:\n{out}\n). "
-            "If you want a range, use `isth compare` or `isth diff`."
+            "If you want a range, use `ag compare` or `ag diff`."
         )
     return out
 

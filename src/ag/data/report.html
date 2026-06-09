@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ag — run report</title>
+<script src="__PLOTLY_SRC__"></script>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --fg:#e6e8ee; --dim:#9aa3b2;
+    --accent:#6366f1; --good:#22c55e; --bad:#ef4444; --warn:#f59e0b;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  header, section, footer { max-width:1100px; margin:0 auto; padding:0 20px; }
+  header { padding-top:24px; }
+  h1 { margin:0 0 4px; font-size:22px; }
+  h2 { font-size:16px; border-bottom:1px solid var(--line); padding-bottom:6px; margin:28px 0 12px; }
+  .dim { color:var(--dim); }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; }
+  #rev-list { display:flex; flex-wrap:wrap; gap:10px; }
+  .rev { padding:10px 12px; min-width:200px; }
+  .rev .nm { font-weight:600; }
+  .badge { font-size:11px; padding:1px 6px; border-radius:6px; border:1px solid var(--line); margin-left:6px; }
+  .badge.branch { color:#a5b4fc; border-color:#4338ca; }
+  .badge.tag { color:#86efac; border-color:#166534; }
+  #filters { display:flex; flex-wrap:wrap; gap:18px; align-items:flex-start; margin-top:10px; }
+  #filters label { display:block; color:var(--dim); font-size:12px; margin-bottom:4px; }
+  select { background:var(--panel); color:var(--fg); border:1px solid var(--line);
+           border-radius:7px; padding:6px 8px; font-size:13px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; max-width:560px; }
+  .chip { font-size:12px; padding:3px 9px; border:1px solid var(--line); border-radius:14px;
+          cursor:pointer; user-select:none; color:var(--dim); }
+  .chip.on { color:var(--fg); border-color:var(--accent); background:#1e2030; }
+  .plot { height:340px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .grid .plot { height:300px; }
+  @media (max-width:760px) { .grid { grid-template-columns:1fr; } }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--dim); font-weight:600; }
+  tr.cell { cursor:pointer; } tr.cell:hover { background:#1b1f29; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .pill { font-size:11px; padding:1px 7px; border-radius:10px; border:1px solid var(--line); margin-right:4px; }
+  .ok { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  .drill { background:#12151c; border:1px solid var(--line); border-radius:8px; margin:6px 0 14px; padding:10px 14px; }
+  .step { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:var(--dim); }
+  .step .err { color:var(--bad); }
+  .final { margin-top:6px; padding-left:10px; border-left:2px solid var(--accent); }
+  code { background:#1b1f29; padding:1px 5px; border-radius:4px; }
+  footer { color:var(--dim); padding:30px 20px 50px; font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">run report</h1>
+  <div id="meta" class="dim"></div>
+</header>
+
+<section>
+  <h2>Revisions</h2>
+  <div id="rev-list"></div>
+</section>
+
+<section>
+  <h2>Visualize</h2>
+  <div id="filters">
+    <div><label>Namespace (harness / model)</label><select id="f-ns"></select></div>
+    <div><label>Metric</label><select id="f-metric"></select></div>
+    <div><label>Chart</label><select id="f-chart">
+      <option value="line">lines</option><option value="bar">bars</option></select></div>
+    <div><label>Tasks</label><div id="f-tasks" class="chips"></div></div>
+  </div>
+  <div id="chart" class="plot" style="margin-top:14px"></div>
+</section>
+
+<section>
+  <h2>Results <span id="results-hint" class="dim"></span></h2>
+  <div id="table"></div>
+</section>
+
+<section>
+  <h2>Distributions <span class="dim">per revision · every point is a run (hover for tier/task/run) · log scale</span></h2>
+  <div class="grid">
+    <div id="dist-time" class="plot"></div>
+    <div id="dist-new" class="plot"></div>
+    <div id="dist-rep" class="plot"></div>
+    <div id="dist-out" class="plot"></div>
+  </div>
+</section>
+
+<footer id="foot"></footer>
+
+<script id="ag-data" type="application/json">__AG_DATA__</script>
+<script>
+"use strict";
+const DATA = JSON.parse(document.getElementById('ag-data').textContent);
+const REVS = DATA.revisions || [];
+const RUNS = DATA.runs || [];
+const MARKER_NAMES = DATA.marker_names || [];
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pct = (k, n) => n ? Math.round(1000 * k / n) / 10 : null;
+function median(xs) {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b), n = s.length;
+  return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
+}
+
+// revision display names (disambiguate duplicate names by short sha)
+const revBySha = Object.fromEntries(REVS.map(c => [c.sha, c]));
+const baseName = c => c.name || c.ref || c.sha;
+const NAME_COUNT = {};
+REVS.forEach(c => { const n = baseName(c); NAME_COUNT[n] = (NAME_COUNT[n] || 0) + 1; });
+const dispName = c => NAME_COUNT[baseName(c)] > 1 ? `${baseName(c)} (${c.sha.slice(0,7)})` : baseName(c);
+const revOrder = REVS.map(c => c.sha);  // already date-sorted by the generator
+
+// tiers / tasks / namespaces present
+const TIER_RANK = { bare:0, clone:1, skill:2 };
+const TIERS = [...new Set(RUNS.map(r => r.tier))]
+  .sort((a, b) => (TIER_RANK[a] ?? 9) - (TIER_RANK[b] ?? 9) || a.localeCompare(b));
+const TIER_COLOR = { bare:'#8a8a9a', clone:'#6366f1', skill:'#22c55e' };
+const PALETTE = ['#8a8a9a','#6366f1','#22c55e','#e8590c','#9333ea','#0891b2'];
+const colorForTier = t => TIER_COLOR[t] || PALETTE[TIERS.indexOf(t) % PALETTE.length];
+const TASKS = [...new Set(RUNS.map(r => r.task))].sort();
+const NSS = (DATA.namespaces && DATA.namespaces.length) ? DATA.namespaces
+            : [...new Set(RUNS.map(r => r.ns))].sort();
+const REV_PALETTE = ['#6366f1','#e8590c','#22c55e','#9333ea','#0891b2','#be185d','#a16207','#64748b'];
+const REV_COLOR = Object.fromEntries(REVS.map((c, i) => [c.sha, REV_PALETTE[i % REV_PALETTE.length]]));
+const revColor = sha => REV_COLOR[sha] || '#6366f1';
+
+// metrics (generic over the profile's markers)
+const METRICS = [];
+MARKER_NAMES.forEach(m => METRICS.push({
+  key: 'mk:' + m, label: '🏷 ' + m + ' adoption %',
+  fn: rs => pct(rs.filter(r => (r.markers || []).includes(m)).length, rs.length),
+}));
+METRICS.push({ key:'match', label:'match %',
+  fn: rs => { const seen = rs.filter(r => r.matched !== null);
+              return pct(seen.filter(r => r.matched).length, seen.length); } });
+METRICS.push({ key:'err', label:'runs with error %',
+  fn: rs => pct(rs.filter(r => r.retry || r.exit !== 0 || (r.status && r.status !== 'ok')).length, rs.length) });
+METRICS.push({ key:'time', label:'median time (s)',
+  fn: rs => { const v = median(rs.map(r => r.elapsed)); return v === null ? null : Math.round(v * 10) / 10; } });
+METRICS.push({ key:'newtok', label:'median new tokens',
+  fn: rs => median(rs.map(r => (r.tok || {}).new || 0)) });
+const metricByKey = Object.fromEntries(METRICS.map(m => [m.key, m]));
+
+const state = { ns: NSS[0], metric: METRICS[0].key, chart: 'line', tasks: new Set(TASKS) };
+
+// header + revisions
+document.getElementById('title').textContent = `${DATA.profile || 'ag'} — run report`;
+document.getElementById('meta').innerHTML =
+  `${RUNS.length} runs · ${REVS.length} revisions · ${NSS.length} namespaces · ` +
+  `generated ${esc(DATA.generated_at || '')}` + (DATA.bucket ? ` · bucket <code>${esc(DATA.bucket)}</code>` : '');
+
+document.getElementById('rev-list').innerHTML = REVS.map(c => {
+  const badge = (c.kind === 'branch' || c.kind === 'tag')
+    ? `<span class="badge ${c.kind}">${c.kind === 'tag' ? 'release' : 'branch'}: ${esc(c.ref || '')}</span>` : '';
+  const n = RUNS.filter(r => r.sha === c.sha).length;
+  const sub = [c.sha, c.date, c.subject].filter(x => x && x !== '?').map(esc).join(' · ');
+  return `<div class="rev panel"><div class="nm">${esc(dispName(c))}${badge}</div>
+          <div class="dim" style="font-size:12px;margin-top:3px">${sub}</div>
+          <div class="dim" style="font-size:12px">${n} runs</div></div>`;
+}).join('') || '<div class="dim">no revisions</div>';
+
+// filters
+const nsSel = document.getElementById('f-ns');
+nsSel.innerHTML = NSS.map(ns => `<option>${esc(ns)}</option>`).join('');
+nsSel.value = state.ns;
+nsSel.addEventListener('change', () => { state.ns = nsSel.value; renderAll(); });
+
+const mSel = document.getElementById('f-metric');
+mSel.innerHTML = METRICS.map(m => `<option value="${esc(m.key)}">${esc(m.label)}</option>`).join('');
+mSel.value = state.metric;
+mSel.addEventListener('change', () => { state.metric = mSel.value; renderAll(); });
+
+const cSel = document.getElementById('f-chart');
+cSel.value = state.chart;
+cSel.addEventListener('change', () => { state.chart = cSel.value; renderChart(); });
+
+const tasksEl = document.getElementById('f-tasks');
+TASKS.forEach(t => {
+  const chip = document.createElement('span');
+  chip.className = 'chip on'; chip.textContent = t;
+  chip.addEventListener('click', () => {
+    if (state.tasks.has(t)) { state.tasks.delete(t); chip.classList.remove('on'); }
+    else { state.tasks.add(t); chip.classList.add('on'); }
+    renderAll();
+  });
+  tasksEl.appendChild(chip);
+});
+
+const inScope = r => r.ns === state.ns && state.tasks.has(r.task);
+
+// chart: metric by revision, grouped by tier
+function renderChart() {
+  const m = metricByKey[state.metric];
+  const rs = RUNS.filter(inScope);
+  const x = REVS.map(dispName);
+  const isLine = state.chart === 'line';
+  const traces = TIERS.map(tier => {
+    const y = REVS.map(c => m.fn(rs.filter(r => r.sha === c.sha && r.tier === tier)));
+    const color = colorForTier(tier);
+    return isLine
+      ? { type: 'scatter', mode: 'lines+markers', name: tier, x, y,
+          line: { color, width: 2 }, marker: { color, size: 7 }, connectgaps: true }
+      : { type: 'bar', name: tier, x, y, marker: { color } };
+  });
+  const layout = {
+    barmode: 'group', height: 340,
+    margin: { l: 50, r: 10, t: 10, b: 70 },
+    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+    font: { color: '#e6e8ee' }, legend: { orientation: 'h', y: 1.15 },
+    yaxis: { title: m.label, gridcolor: '#2a2f3a', zeroline: false, rangemode: 'tozero' },
+    xaxis: { gridcolor: '#2a2f3a' },
+  };
+  Plotly.react('chart', traces, layout, { displayModeBar: false, responsive: true });
+}
+
+// results table (revision × tier × task), click a row to drill into its runs
+function cellRuns(sha, tier, task) {
+  return RUNS.filter(r => r.sha === sha && r.tier === tier && r.task === task && r.ns === state.ns);
+}
+function markerSummary(rs) {
+  return MARKER_NAMES.map(m => {
+    const k = rs.filter(r => (r.markers || []).includes(m)).length;
+    return k ? `<span class="pill">${esc(m)} ${k}/${rs.length}</span>` : '';
+  }).join('');
+}
+function drill(rs) {
+  return rs.slice().sort((a, b) => a.run - b.run).map(r => {
+    const head = `run ${r.run} · ` +
+      (r.matched === true ? '<span class="ok">✓ match</span>' :
+       r.matched === false ? '<span class="bad">✗ no-match</span>' : '<span class="dim">—</span>') +
+      ` · ${Math.round(r.elapsed)}s · ${r.calls} tools` +
+      (r.errs ? ` · <span class="bad">errors ${r.errs}</span>` : '') +
+      (r.status && r.status !== 'ok' ? ` · <span class="warn">${esc(r.status)}</span>` : '') +
+      ` · tok new:${(r.tok||{}).new ?? 0} out:${(r.tok||{}).out ?? 0} · ` +
+      (r.markers || []).map(m => `<span class="pill">${esc(m)}</span>`).join('');
+    const steps = (r.steps || []).map(s =>
+      `<div class="step">${s.e ? '❗' : '·'} <b>${esc(s.n)}</b> ${esc(s.x || '')}` +
+      (s.e && s.r ? `<br><span class="err">↳ ${esc(s.r)}</span>` : '') + `</div>`).join('') ||
+      '<div class="step dim">(no tool calls)</div>';
+    const final = r.final ? `<div class="final">${esc(r.final)}</div>` : '';
+    const trace = r.trace_rel ? `<div class="dim" style="font-size:11px;margin-top:4px">trace: <code>${esc(r.trace_rel)}</code></div>` : '';
+    return `<div style="margin-bottom:12px"><div>${head}</div>${steps}${final}${trace}</div>`;
+  }).join('');
+}
+function renderTable() {
+  const rows = [];
+  for (const sha of revOrder) for (const tier of TIERS) for (const task of TASKS) {
+    if (!state.tasks.has(task)) continue;
+    const rs = cellRuns(sha, tier, task);
+    if (!rs.length) continue;
+    const seen = rs.filter(r => r.matched !== null);
+    const matched = seen.length ? `${seen.filter(r => r.matched).length}/${seen.length}` : '—';
+    const errs = rs.filter(r => r.retry || r.exit !== 0 || (r.status && r.status !== 'ok')).length;
+    const id = `d_${sha}_${tier}_${task}`.replace(/[^\w]/g, '_');
+    rows.push(`<tr class="cell" data-id="${id}">
+      <td>${esc(dispName(revBySha[sha]))}</td><td>${esc(tier)}</td><td>${esc(task)}</td>
+      <td class="num">${rs.length}</td>
+      <td>✓ ${matched}${errs ? ` · <span class="bad">!${errs}</span>` : ''}</td>
+      <td>${markerSummary(rs) || '<span class="dim">—</span>'}</td>
+      <td class="num">${Math.round(median(rs.map(r => r.elapsed)) || 0)}s</td>
+    </tr><tr id="${id}" style="display:none"><td colspan="7"><div class="drill">${drill(rs)}</div></td></tr>`);
+  }
+  document.getElementById('results-hint').textContent = `· ${state.ns} · click a row to drill into its runs`;
+  document.getElementById('table').innerHTML = rows.length ? `<table>
+    <thead><tr><th>Revision</th><th>Tier</th><th>Task</th><th class="num">runs</th>
+    <th>✓match · errors</th><th>markers</th><th class="num">med time</th></tr></thead>
+    <tbody>${rows.join('')}</tbody></table>`
+    : '<div class="dim">no runs for this namespace / task selection</div>';
+  document.querySelectorAll('tr.cell').forEach(tr => tr.addEventListener('click', () => {
+    const d = document.getElementById(tr.dataset.id);
+    d.style.display = d.style.display === 'none' ? '' : 'none';
+  }));
+}
+
+// distributions: one box+strip per revision, log scale (elapsed + token columns)
+function boxFig(divId, title, valueFn) {
+  const rs = RUNS.filter(inScope);
+  const traces = REVS.map(c => {
+    const cr = rs.filter(r => r.sha === c.sha);
+    return {
+      type: 'box', name: dispName(c),
+      y: cr.map(valueFn),
+      text: cr.map(r => `${r.tier} · ${r.task} · run${r.run}`),
+      hoverinfo: 'y+text',
+      boxpoints: 'all', jitter: 0.5, pointpos: 0,
+      marker: { color: revColor(c.sha), size: 4, opacity: 0.7 },
+      line: { color: revColor(c.sha) }, fillcolor: revColor(c.sha) + '22',
+    };
+  });
+  Plotly.react(divId, traces, {
+    title: { text: title, font: { size: 13 }, x: 0, xanchor: 'left' },
+    height: 300, showlegend: false, margin: { l: 52, r: 10, t: 30, b: 50 },
+    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: { color: '#e6e8ee' },
+    yaxis: { type: 'log', gridcolor: '#2a2f3a', zeroline: false },
+    xaxis: { gridcolor: '#2a2f3a' },
+  }, { displayModeBar: false, responsive: true });
+}
+function renderDistributions() {
+  boxFig('dist-time', 'elapsed (s)', r => r.elapsed);
+  boxFig('dist-new', 'new tokens', r => (r.tok || {}).new || 0);
+  boxFig('dist-rep', 'repeat tokens', r => (r.tok || {}).rep || 0);
+  boxFig('dist-out', 'out tokens', r => (r.tok || {}).out || 0);
+}
+
+function renderAll() { renderChart(); renderTable(); renderDistributions(); }
+renderAll();
+
+document.getElementById('foot').innerHTML =
+  `Static report generated by <code>ag report</code>. Profile: <code>${esc(DATA.profile || '')}</code>. ` +
+  `Markers: ${MARKER_NAMES.map(m => `<code>${esc(m)}</code>`).join(', ') || '(none)'}.`;
+</script>
+</body>
+</html>

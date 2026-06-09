@@ -2,10 +2,10 @@
 
 All runtime state (configs, workspaces, results) lives under ``state_root()``
 — by default the current working directory, overridable via the
-``ISTH_DATA_DIR`` env var. The transformers source repo is located via
+``AG_DATA_DIR`` env var. The transformers source repo is located via
 ``transformers_src()``, defaulting to ``<state_root>/../transformers``
 (where the harness has historically sat next to the repo), overridable via
-``ISTH_TRANSFORMERS_SRC``.
+``AG_TRANSFORMERS_SRC``.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pathlib import Path
 
 
 def state_root() -> Path:
-    root = Path(os.environ.get("ISTH_DATA_DIR") or Path.cwd()).resolve()
+    root = Path(os.environ.get("AG_DATA_DIR") or Path.cwd()).resolve()
     return root
 
 
@@ -92,7 +92,7 @@ def traces_dir(commit: str | None = None, ns: str | None = None) -> Path:
 
 
 def transformers_src() -> Path:
-    override = os.environ.get("ISTH_TRANSFORMERS_SRC")
+    override = os.environ.get("AG_TRANSFORMERS_SRC")
     if override:
         return Path(override).resolve()
     # Historical default: sibling directory.
@@ -100,14 +100,14 @@ def transformers_src() -> Path:
     if (candidate / ".git").exists():
         return candidate
     raise SystemExit(
-        "Could not locate the transformers source repo. Set ISTH_TRANSFORMERS_SRC "
+        "Could not locate the transformers source repo. Set AG_TRANSFORMERS_SRC "
         f"to the repo path (tried {candidate})."
     )
 
 
 def package_data_path(*parts: str) -> Path:
     """Return a filesystem path to a packaged data file (tasks.yaml, inputs/...)."""
-    ref = resources.files("isth").joinpath("data", *parts)
+    ref = resources.files("ag").joinpath("data", *parts)
     # `resources.files` returns a MultiplexedPath-like; .resolve() for a wheel install
     # isn't guaranteed, but for editable installs (our main use case) it's a real Path.
     return Path(str(ref))

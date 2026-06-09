@@ -9,7 +9,7 @@ The harness keeps three kinds of run state under the data dir:
 - ``results/MANIFEST.json`` — a generated record of *which* configs/commits were run
   (commit → git subject/date + the set of harness/model/variant/task/run cells present).
 
-``isth sync`` mirrors ``results/`` and ``traces/`` (each under its own prefix) to/from
+``ag sync`` mirrors ``results/`` and ``traces/`` (each under its own prefix) to/from
 a bucket via ``hf buckets sync``, which only transfers files that changed.
 
 **Safety:** ``push``/``pull`` are *dry-run by default*. Nothing leaves or
