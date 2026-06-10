@@ -233,7 +233,8 @@ def collect_records(refs: list[str] | None = None, *, markers: list | None = Non
     commits.sort(key=lambda c: (c["date"], c["sha"]))
 
     tasks_meta = [
-        {"id": tid, "category": t.get("category"), "expected": t.get("expected")}
+        {"id": tid, "category": t.get("category"), "expected": t.get("expected"),
+         "match": t.get("match") or "substring", "prompt": (t.get("prompt") or "").strip()}
         for tid, t in load_tasks().items()
     ]
     return {

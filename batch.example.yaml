@@ -5,14 +5,18 @@
 profile: transformers
 
 # Only the three fastest tasks (small text/tokenizer models).
-tasks: [classify-sentiment, extract-entities, tokenize-count]
+tasks: [transcribe-audio, caption-image, image-classify]
 
 # These three tiny models fit easily in 50 GB, so use the cheaper flavor.
 flavor: t4-small
 
 models:
-  - Qwen/Qwen3.5-9B
   - MiniMaxAI/MiniMax-M2.7
+  - Qwen/Qwen3-Coder-Next
+  - Qwen/Qwen3.5-9B
+  - Qwen/Qwen3.6-35B-A3B
+  - google/gemma-4-31B-it
+  - moonshotai/Kimi-K2.6
   - zai-org/GLM-5.1
 
 revisions:

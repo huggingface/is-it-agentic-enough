@@ -69,6 +69,13 @@
   #rev-list { display:flex; flex-wrap:wrap; gap:10px; }
   .rev { padding:10px 14px; min-width:140px; }
   .rev .nm { font-weight:600; }
+  .task { padding:12px 16px; margin-bottom:10px; }
+  .task-h { margin-bottom:8px; }
+  .task-prompt { white-space:pre-wrap; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:12.5px; line-height:1.5; background:var(--code-bg); color:var(--fg);
+    border-radius:8px; padding:10px 12px; margin:0 0 8px; overflow-x:auto; }
+  .task-match { font-size:13px; }
+  .task-match .pill { color:var(--accent-fg); border-color:var(--accent); background:var(--chip-on); font-weight:600; }
   .badge { font-size:11px; padding:1px 8px; border-radius:999px; border:1px solid var(--line); margin-left:6px; font-weight:600; }
   .badge.tag { color:var(--good); border-color:var(--good); }
   #filters { display:flex; flex-wrap:wrap; gap:18px; align-items:flex-start; margin-top:10px; }
@@ -118,6 +125,11 @@
 <section>
   <h2>Revisions</h2>
   <div id="rev-list"></div>
+</section>
+
+<section>
+  <h2>Tasks <span class="dim">— exactly what each run is asked to do, and how a run counts as a match</span></h2>
+  <div id="task-list"></div>
 </section>
 
 <section>
@@ -316,6 +328,33 @@ document.getElementById('rev-list').innerHTML = REVS.map(c => {
   return `<div class="rev panel"><div class="nm">${esc(dispName(c))}${badge}</div>
           <div class="dim" style="font-size:12px;margin-top:3px">${n} runs</div></div>`;
 }).join('') || '<div class="dim">no revisions</div>';
+
+// tasks: show exactly what each run asks for + how a match is scored
+const TASK_META = Object.fromEntries((DATA.tasks || []).map(t => [t.id, t]));
+function matchDesc(t) {
+  const m = t.match || 'substring';
+  const e = esc(String(t.expected));
+  if (t.expected === null || t.expected === undefined || t.expected === '')
+    return 'Open-ended — not auto-scored for correctness (compared via markers, tokens & time only).';
+  if (m === 'substring') return `Match when the final answer contains “${e}” (case-insensitive).`;
+  if (m === 'exact')     return `Match when the final answer equals “${e}”.`;
+  if (m === 'regex')     return `Match when the final answer matches the pattern /${e}/i.`;
+  if (m === 'judge')     return `Judged against “${e}”.`;
+  return `Match (${esc(m)}): “${e}”.`;
+}
+document.getElementById('task-list').innerHTML = TASKS.map(id => {
+  const t = TASK_META[id] || { id };
+  const cat = t.category ? `<span class="badge">${esc(t.category)}</span>` : '';
+  const scored = !(t.expected === null || t.expected === undefined || t.expected === '');
+  const tag = scored ? `<span class="pill">expected: ${esc(String(t.expected))}</span>`
+                     : `<span class="pill">open-ended</span>`;
+  const prompt = (t.prompt || '').trim();
+  return `<div class="task panel">
+    <div class="task-h"><b>${esc(id)}</b> ${cat}</div>
+    ${prompt ? `<pre class="task-prompt">${esc(prompt)}</pre>` : ''}
+    <div class="task-match">${tag} <span class="dim">${matchDesc(t)}</span></div>
+  </div>`;
+}).join('') || '<div class="dim">no tasks in this report</div>';
 
 // filters
 const mSel = document.getElementById('f-metric');

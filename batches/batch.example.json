@@ -2,88 +2,200 @@
   "profile": "transformers",
   "jobs": [
     {
-      "label": "pi:Qwen/Qwen3.5-9B @ v5.8.0",
-      "ref": "v5.8.0",
-      "name": null,
-      "model": "Qwen/Qwen3.5-9B",
-      "job_id": "6a28ed8259bbdade52d4779b"
-    },
-    {
-      "label": "pi:Qwen/Qwen3.5-9B @ v5.9.0",
-      "ref": "v5.9.0",
-      "name": null,
-      "model": "Qwen/Qwen3.5-9B",
-      "job_id": "6a28ed88c4f53f9fc5aa3be8"
-    },
-    {
-      "label": "pi:Qwen/Qwen3.5-9B @ v5.10.2",
-      "ref": "v5.10.2",
-      "name": null,
-      "model": "Qwen/Qwen3.5-9B",
-      "job_id": "6a28ed8e59bbdade52d4779d"
-    },
-    {
-      "label": "pi:Qwen/Qwen3.5-9B @ w/ CLI + Skill",
-      "ref": "4d15b215f3",
-      "name": "w/ CLI + Skill",
-      "model": "Qwen/Qwen3.5-9B",
-      "job_id": "6a28ed8fc4f53f9fc5aa3bea"
-    },
-    {
       "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.8.0",
       "ref": "v5.8.0",
       "name": null,
       "model": "MiniMaxAI/MiniMax-M2.7",
-      "job_id": "6a28ed9559bbdade52d477a1"
+      "job_id": "6a291b25c4f53f9fc5aa3e99"
     },
     {
       "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.9.0",
       "ref": "v5.9.0",
       "name": null,
       "model": "MiniMaxAI/MiniMax-M2.7",
-      "job_id": "6a28ed9ac4f53f9fc5aa3bee"
+      "job_id": "6a291b29c4f53f9fc5aa3e9b"
     },
     {
       "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.10.2",
       "ref": "v5.10.2",
       "name": null,
       "model": "MiniMaxAI/MiniMax-M2.7",
-      "job_id": "6a28eda0c4f53f9fc5aa3bf0"
+      "job_id": "6a291b2dc4f53f9fc5aa3e9d"
     },
     {
       "label": "pi:MiniMaxAI/MiniMax-M2.7 @ w/ CLI + Skill",
       "ref": "4d15b215f3",
       "name": "w/ CLI + Skill",
       "model": "MiniMaxAI/MiniMax-M2.7",
-      "job_id": "6a28eda1c4f53f9fc5aa3bf2"
+      "job_id": "6a291b2e59bbdade52d47c07"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.8.0",
+      "ref": "v5.8.0",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a291b32c4f53f9fc5aa3e9f"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.9.0",
+      "ref": "v5.9.0",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a291b3659bbdade52d47c09"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.10.2",
+      "ref": "v5.10.2",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a291b3a59bbdade52d47c0b"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ w/ CLI + Skill",
+      "ref": "4d15b215f3",
+      "name": "w/ CLI + Skill",
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a291b3bc4f53f9fc5aa3ea1"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.8.0",
+      "ref": "v5.8.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a291b3f59bbdade52d47c0d"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.9.0",
+      "ref": "v5.9.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a291b43c4f53f9fc5aa3ea3"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.10.2",
+      "ref": "v5.10.2",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a291b47c4f53f9fc5aa3ea5"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ w/ CLI + Skill",
+      "ref": "4d15b215f3",
+      "name": "w/ CLI + Skill",
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a291b48c4f53f9fc5aa3ea7"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.8.0",
+      "ref": "v5.8.0",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a291b4c59bbdade52d47c11"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.9.0",
+      "ref": "v5.9.0",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a291b5059bbdade52d47c13"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.10.2",
+      "ref": "v5.10.2",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a291b54c4f53f9fc5aa3ea9"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ w/ CLI + Skill",
+      "ref": "4d15b215f3",
+      "name": "w/ CLI + Skill",
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a291b5559bbdade52d47c15"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.8.0",
+      "ref": "v5.8.0",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a291b59c4f53f9fc5aa3ead"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.9.0",
+      "ref": "v5.9.0",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a291b5dc4f53f9fc5aa3eaf"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.10.2",
+      "ref": "v5.10.2",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a291b63c4f53f9fc5aa3eb1"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ w/ CLI + Skill",
+      "ref": "4d15b215f3",
+      "name": "w/ CLI + Skill",
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a291b63c4f53f9fc5aa3eb3"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.8.0",
+      "ref": "v5.8.0",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a291b6859bbdade52d47c19"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.9.0",
+      "ref": "v5.9.0",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a291b79c4f53f9fc5aa3eb5"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.10.2",
+      "ref": "v5.10.2",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a291b7d59bbdade52d47c1d"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ w/ CLI + Skill",
+      "ref": "4d15b215f3",
+      "name": "w/ CLI + Skill",
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a291b7ec4f53f9fc5aa3eb7"
     },
     {
       "label": "pi:zai-org/GLM-5.1 @ v5.8.0",
       "ref": "v5.8.0",
       "name": null,
       "model": "zai-org/GLM-5.1",
-      "job_id": "6a28eda759bbdade52d477a3"
+      "job_id": "6a291b8259bbdade52d47c1f"
     },
     {
       "label": "pi:zai-org/GLM-5.1 @ v5.9.0",
       "ref": "v5.9.0",
       "name": null,
       "model": "zai-org/GLM-5.1",
-      "job_id": "6a28edad59bbdade52d477a5"
+      "job_id": "6a291b86c4f53f9fc5aa3eb9"
     },
     {
       "label": "pi:zai-org/GLM-5.1 @ v5.10.2",
       "ref": "v5.10.2",
       "name": null,
       "model": "zai-org/GLM-5.1",
-      "job_id": "6a28edb3c4f53f9fc5aa3bf4"
+      "job_id": "6a291b8b59bbdade52d47c21"
     },
     {
       "label": "pi:zai-org/GLM-5.1 @ w/ CLI + Skill",
       "ref": "4d15b215f3",
       "name": "w/ CLI + Skill",
       "model": "zai-org/GLM-5.1",
-      "job_id": "6a28edb3c4f53f9fc5aa3bf6"
+      "job_id": "6a291b8bc4f53f9fc5aa3ebb"
     }
   ]
 }
