@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from . import store
 from .dashboard import Dashboard, stderr_is_tty
 from .log import get_console, log
-from .paths import results_dir, results_label
+from .paths import results_label
 from .run_task import load_tasks, run
-from .util import read_meta
 
 
 def run_suite(
@@ -45,7 +45,7 @@ def run_suite(
             return runs
         return int(all_tasks[tid].get("runs") or 3)
 
-    rdir = results_dir(short, results_label(runner, model))
+    ns = results_label(runner, model)
     plan: list[tuple[str, str, str, int]] = []
     for tid in selected:
         for tier in resolved_tiers:
@@ -72,16 +72,16 @@ def run_suite(
 
     with dash.live():
         for i, (_binding, tier, tid, run_idx) in enumerate(plan, 1):
-            out = rdir / f"{tier}__{tid}__run{run_idx}.jsonl"
-            meta_path = rdir / f"{tier}__{tid}__run{run_idx}.meta.json"
-            if skip_existing and out.exists():
-                log(f"[{i}/{total}] skip (exists) {tier} {tid} run{run_idx}")
-                dash.mark_skipped_existing(short, tier, tid, run_idx, read_meta(meta_path))
-                continue
+            if skip_existing:
+                existing = store.get_run(short, ns, tier, tid, run_idx)
+                if existing is not None:
+                    log(f"[{i}/{total}] skip (exists) {tier} {tid} run{run_idx}")
+                    dash.mark_skipped_existing(short, tier, tid, run_idx, existing.meta)
+                    continue
             log(f"[{i}/{total}] → {tier} {tid} run{run_idx}")
             dash.mark_running(short, tier, tid, run_idx)
             try:
-                run(
+                record = run(
                     profile, ref, tier, tid, run_idx,
                     model=model, max_tool_calls=max_tool_calls, runner=runner, name=name,
                 )
@@ -89,8 +89,7 @@ def run_suite(
                 log(f"  ! failed: {e}")
                 dash.mark_failed(short, tier, tid, run_idx, str(e))
                 continue
-            meta = read_meta(meta_path)
-            if meta is None:
+            if record is None or not record.meta:
                 dash.mark_failed(short, tier, tid, run_idx, "no meta")
             else:
-                dash.mark_done(short, tier, tid, run_idx, meta)
+                dash.mark_done(short, tier, tid, run_idx, record.meta)

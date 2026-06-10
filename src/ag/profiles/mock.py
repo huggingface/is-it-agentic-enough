@@ -52,7 +52,7 @@ class MockProfile(Profile):
         # Record the binding label so `--name` maps a display name in the report
         # (same ref.json marker the report reads; mock bindings have no git kind).
         (results_dir(b) / "ref.json").write_text(
-            json.dumps({"ref": ref, "name": name, "kind": "commit"})
+            json.dumps({"ref": ref, "name": name, "kind": "commit", "profile": "mock"})
         )
         return BuiltEnv(
             binding=b,

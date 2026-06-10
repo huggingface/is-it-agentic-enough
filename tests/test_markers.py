@@ -30,7 +30,7 @@ def test_run_corpus_scopes():
 def test_fired_scopes_are_isolated():
     # a `transformers` mention only in WROTE must not fire the commands-scoped cli marker
     run = _run(tool_calls=[("Write", {"file_path": "x.sh", "content": "transformers classify x"})])
-    fired = markers.fired([Marker("cli", r"transformers\s+\S", "commands")], run)
+    fired = markers.fired([Marker("cli", r"transformers\s+\S", "ran the CLI", "commands")], run)
     assert fired["cli"] is False
 
 

@@ -47,52 +47,65 @@ def tool_result_content(block: dict) -> str:
     return str(c)
 
 
-def parse_transcript(path: Path) -> Transcript:
-    """Walk a run's ``.jsonl`` and return its ordered tool steps + final answer."""
+def parse_events(events: list | None) -> Transcript:
+    """Walk an in-memory list of canonical events (the per-run format the store
+    holds) and return its ordered tool steps + final answer. This is the primary
+    entry now that runs are stored as event lists rather than per-run files."""
     tx = Transcript()
     by_id: dict[str, ToolStep] = {}
     last_text: str | None = None
+    for e in events or []:
+        if not isinstance(e, dict):
+            continue
+        t = e.get("type")
+        if t == "assistant":
+            for b in e.get("message", {}).get("content", []) or []:
+                if b.get("type") == "tool_use":
+                    step = ToolStep(name=b.get("name", "?"), input=b.get("input") or {})
+                    tx.steps.append(step)
+                    tid = b.get("id")
+                    if tid:
+                        by_id[tid] = step
+                elif b.get("type") == "text" and (b.get("text") or "").strip():
+                    last_text = b["text"]
+        elif t == "user":
+            for b in e.get("message", {}).get("content", []) or []:
+                if b.get("type") == "tool_result":
+                    tid = b.get("tool_use_id")
+                    step = by_id.get(tid) if tid else None
+                    if step is not None:
+                        step.is_error = bool(b.get("is_error"))
+                        step.result = tool_result_content(b)
+        elif t == "result":
+            tx.final = e.get("result") or ""
+    # Some runners (Pi) never emit a `result` event; their final answer is the
+    # last assistant text.
+    if tx.final is None:
+        tx.final = last_text
+    return tx
+
+
+def parse_transcript(path: Path) -> Transcript:
+    """Compatibility shim: read a run's ``.jsonl`` file and parse it. Retained for
+    callers/tests that still hold a per-run file; the store path uses
+    :func:`parse_events` directly."""
     try:
-        f = path.open()
+        text = path.read_text()
     except FileNotFoundError:
+        tx = Transcript()
         tx.missing = True
         return tx
-    with f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                e = json.loads(line)
-            except json.JSONDecodeError:
-                # In-flight write: the last line may be a partial object. Stop
-                # here but keep everything parsed so far.
-                tx.broken = True
-                break
-            t = e.get("type")
-            if t == "assistant":
-                for b in e.get("message", {}).get("content", []) or []:
-                    if b.get("type") == "tool_use":
-                        step = ToolStep(name=b.get("name", "?"), input=b.get("input") or {})
-                        tx.steps.append(step)
-                        tid = b.get("id")
-                        if tid:
-                            by_id[tid] = step
-                    elif b.get("type") == "text" and (b.get("text") or "").strip():
-                        last_text = b["text"]
-            elif t == "user":
-                for b in e.get("message", {}).get("content", []) or []:
-                    if b.get("type") == "tool_result":
-                        tid = b.get("tool_use_id")
-                        step = by_id.get(tid) if tid else None
-                        if step is not None:
-                            step.is_error = bool(b.get("is_error"))
-                            step.result = tool_result_content(b)
-            elif t == "result":
-                tx.final = e.get("result") or ""
-    # Some runners (Pi) never emit a `result` event; their final answer is the
-    # last assistant text. Don't fall back for broken (in-flight) transcripts —
-    # a mid-run message isn't a final answer.
-    if tx.final is None and not tx.broken:
-        tx.final = last_text
+    events = []
+    broken = False
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            broken = True  # partial in-flight write; keep what parsed so far
+            break
+    tx = parse_events(events)
+    tx.broken = broken
     return tx

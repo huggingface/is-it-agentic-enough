@@ -20,7 +20,7 @@ import subprocess
 from pathlib import Path
 
 from .log import log
-from .paths import state_root, traces_dir
+from .paths import state_root
 
 
 _CARD_TEMPLATE = """---
@@ -49,26 +49,35 @@ def _have_hf_cli() -> bool:
     return shutil.which("hf") is not None
 
 
-def stage(label: str | None, repo: str, dest: Path | None = None) -> tuple[Path, list[Path]]:
-    """Assemble a staging dir: copy the label's trace files + write a dataset
-    card. Returns ``(staging_dir, trace_files)``.
+def stage(label: str | None, repo: str, dest: Path | None = None) -> tuple[Path, list[str]]:
+    """Assemble a staging dir: unpack each run's *native* session from the trace
+    bundles into an individual ``.jsonl`` (the Hub agent-traces viewer renders
+    one file per session) + write a dataset card. Returns ``(staging_dir, names)``.
 
-    Traces live at ``traces/<commit>/<harness>/<model_id>/<file>.jsonl``; ``label``
-    is the ``<harness>/<model_id>`` namespace. Files are collected across all
-    commits and flattened to ``<commit>__<file>.jsonl`` so they stay unique."""
-    root = traces_dir()
-    pattern = f"*/{label}/*.jsonl" if label else "*/*/*/*.jsonl"
-    trace_files = sorted(p for p in root.glob(pattern) if p.is_file())
+    Traces are bundled at ``traces/<commit>/<harness>/<model_id>.jsonl`` (one line
+    per run). ``label`` is the ``<harness>/<model_id>`` namespace; runs flatten to
+    ``<commit>__<harness>__<model>__<tier>__<task>__runN.jsonl`` to stay unique."""
+    from . import store
+
+    names: list[str] = []
     # Stage outside results/ and traces/ so `ag sync` doesn't pick it up.
     staging = dest or (state_root() / f".upload__{(label or 'default').replace('/', '__')}")
     staging.mkdir(parents=True, exist_ok=True)
-    for p in trace_files:
-        commit = p.relative_to(root).parts[0]
-        shutil.copyfile(p, staging / f"{commit}__{p.name}")
+    for binding, ns in store.iter_cells():
+        if label and ns != label:
+            continue
+        harness, _, model = ns.partition("/")
+        for tr in store.list_traces(binding, ns):
+            raw = tr.get("raw")
+            if not raw:
+                continue
+            name = f"{binding}__{harness}__{model}__{tr['tier']}__{tr['task']}__run{tr['run']}.jsonl"
+            (staging / name).write_text(raw)
+            names.append(name)
     (staging / "README.md").write_text(
-        _CARD_TEMPLATE.format(repo=repo, label=label or "(default)", n=len(trace_files))
+        _CARD_TEMPLATE.format(repo=repo, label=label or "(default)", n=len(names))
     )
-    return staging, trace_files
+    return staging, names
 
 
 def upload(repo: str, label: str | None = None, *, push: bool = False, private: bool = True) -> int:

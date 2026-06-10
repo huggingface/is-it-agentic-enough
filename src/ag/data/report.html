@@ -5,57 +5,114 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ag — run report</title>
 <script src="__PLOTLY_SRC__"></script>
+<!-- Source Sans 3: Hugging Face's typeface (graceful fallback to the system stack if offline). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<script>
+  // Honor the Hugging Face Space theme (?__theme=light|dark); else the OS theme.
+  (function () {
+    var p = new URLSearchParams(location.search).get('__theme');
+    var dark = p ? p === 'dark' : (window.matchMedia
+      && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.classList.add(dark ? 'dark' : 'light');
+  })();
+</script>
 <style>
+  /* Light theme (default) — Hugging Face palette: warm off-white surface,
+     near-black ink, amber/orange brand accent. */
   :root {
-    --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --fg:#e6e8ee; --dim:#9aa3b2;
-    --accent:#6366f1; --good:#22c55e; --bad:#ef4444; --warn:#f59e0b;
+    --bg:#ffffff; --panel:#ffffff; --subtle:#f8f7f4; --line:#ebe9e4;
+    --fg:#1b1b18; --dim:#6b7280; --accent:#ff9d00; --accent-fg:#92400e;
+    --good:#16a34a; --bad:#dc2626; --warn:#d97706;
+    --hover:#f8f7f4; --chip-on:#fff8eb; --code-bg:#f5f4f0; --drill-bg:#faf9f6;
+    --brand1:#ffd21e; --brand2:#ff9d00;
+    --shadow:0 1px 2px rgba(27,27,24,.05), 0 1px 3px rgba(27,27,24,.04);
+  }
+  /* Dark theme — explicit (?__theme=dark / .dark) and the OS fallback. */
+  :root.dark {
+    --bg:#0b0f17; --panel:#161b22; --subtle:#11161f; --line:#2b313b;
+    --fg:#e6edf3; --dim:#9aa4b2; --accent:#ffb224; --accent-fg:#ffce6e;
+    --good:#3fb950; --bad:#f85149; --warn:#d29922;
+    --hover:#1b212b; --chip-on:#2a2113; --code-bg:#1b212b; --drill-bg:#10151d;
+    --brand1:#ffd21e; --brand2:#ff9d00;
+    --shadow:none;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not(.light):not(.dark) {
+      --bg:#0b0f17; --panel:#161b22; --subtle:#11161f; --line:#2b313b;
+      --fg:#e6edf3; --dim:#9aa4b2; --accent:#ffb224; --accent-fg:#ffce6e;
+      --good:#3fb950; --bad:#f85149; --warn:#d29922;
+      --hover:#1b212b; --chip-on:#2a2113; --code-bg:#1b212b; --drill-bg:#10151d;
+      --brand1:#ffd21e; --brand2:#ff9d00;
+      --shadow:none;
+    }
   }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--fg);
-         font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
-  header, section, footer { max-width:1100px; margin:0 auto; padding:0 20px; }
-  header { padding-top:24px; }
-  h1 { margin:0 0 4px; font-size:22px; }
-  h2 { font-size:16px; border-bottom:1px solid var(--line); padding-bottom:6px; margin:28px 0 12px; }
+         font:15px/1.55 "Source Sans 3","Source Sans Pro",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+         -webkit-font-smoothing:antialiased; }
+  header, section, footer { max-width:1400px; margin:0 auto; padding:0 24px; }
+  header { padding-top:30px; display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
+  h1 { margin:0 0 6px; font-size:26px; font-weight:700; letter-spacing:-0.01em;
+       display:inline-block; }
+  #theme-toggle { flex:none; cursor:pointer; border:1px solid var(--line); background:var(--panel);
+    color:var(--fg); border-radius:999px; padding:7px 12px; font-size:13px; line-height:1;
+    display:inline-flex; align-items:center; gap:6px; box-shadow:var(--shadow); }
+  #theme-toggle:hover { border-color:var(--accent); }
+  /* HF brand underline accent under the title */
+  h1::after { content:""; display:block; height:3px; margin-top:6px; border-radius:3px;
+              background:linear-gradient(90deg,var(--brand1),var(--brand2)); }
+  h2 { font-size:16px; font-weight:600; border-bottom:1px solid var(--line); padding-bottom:6px; margin:28px 0 12px; }
   .dim { color:var(--dim); }
-  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); }
   #rev-list { display:flex; flex-wrap:wrap; gap:10px; }
-  .rev { padding:10px 12px; min-width:200px; }
+  .rev { padding:10px 14px; min-width:140px; }
   .rev .nm { font-weight:600; }
-  .badge { font-size:11px; padding:1px 6px; border-radius:6px; border:1px solid var(--line); margin-left:6px; }
-  .badge.branch { color:#a5b4fc; border-color:#4338ca; }
-  .badge.tag { color:#86efac; border-color:#166534; }
+  .badge { font-size:11px; padding:1px 8px; border-radius:999px; border:1px solid var(--line); margin-left:6px; font-weight:600; }
+  .badge.tag { color:var(--good); border-color:var(--good); }
   #filters { display:flex; flex-wrap:wrap; gap:18px; align-items:flex-start; margin-top:10px; }
   #filters label { display:block; color:var(--dim); font-size:12px; margin-bottom:4px; }
   select { background:var(--panel); color:var(--fg); border:1px solid var(--line);
-           border-radius:7px; padding:6px 8px; font-size:13px; }
+           border-radius:8px; padding:6px 10px; font-size:13px; }
+  select:hover { border-color:var(--accent); }
   .chips { display:flex; flex-wrap:wrap; gap:6px; max-width:560px; }
-  .chip { font-size:12px; padding:3px 9px; border:1px solid var(--line); border-radius:14px;
-          cursor:pointer; user-select:none; color:var(--dim); }
-  .chip.on { color:var(--fg); border-color:var(--accent); background:#1e2030; }
+  .chip { font-size:12px; padding:3px 10px; border:1px solid var(--line); border-radius:999px;
+          cursor:pointer; user-select:none; color:var(--dim); background:var(--panel); }
+  .chip.on { color:var(--accent-fg); border-color:var(--accent); background:var(--chip-on); font-weight:600; }
   .plot { height:340px; }
+  .chartlegend { display:flex; flex-wrap:wrap; gap:16px; }
+  .chartlegend .it { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--dim); }
+  .chartlegend .sw { width:12px; height:12px; border-radius:3px; display:inline-block; }
   .grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
   .grid .plot { height:300px; }
   @media (max-width:760px) { .grid { grid-template-columns:1fr; } }
   table { width:100%; border-collapse:collapse; font-size:13px; }
-  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
   th { color:var(--dim); font-weight:600; }
-  tr.cell { cursor:pointer; } tr.cell:hover { background:#1b1f29; }
+  tr.cell { cursor:pointer; } tr.cell:hover { background:var(--hover); }
+  tr.grp { cursor:pointer; background:var(--subtle); }
+  tr.grp:hover { background:var(--hover); }
+  tr.grp td { color:var(--fg); font-weight:600; }
+  .caret { color:var(--dim); display:inline-block; width:1em; }
   td.num { text-align:right; font-variant-numeric:tabular-nums; }
-  .pill { font-size:11px; padding:1px 7px; border-radius:10px; border:1px solid var(--line); margin-right:4px; }
+  .pill { font-size:11px; padding:1px 8px; border-radius:999px; border:1px solid var(--line); margin-right:4px; }
   .ok { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); }
-  .drill { background:#12151c; border:1px solid var(--line); border-radius:8px; margin:6px 0 14px; padding:10px 14px; }
+  .drill { background:var(--drill-bg); border:1px solid var(--line); border-radius:8px; margin:6px 0 14px; padding:10px 14px; }
   .step { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:var(--dim); }
   .step .err { color:var(--bad); }
   .final { margin-top:6px; padding-left:10px; border-left:2px solid var(--accent); }
-  code { background:#1b1f29; padding:1px 5px; border-radius:4px; }
-  footer { color:var(--dim); padding:30px 20px 50px; font-size:12px; }
+  code { background:var(--code-bg); padding:1px 5px; border-radius:4px; font-size:12px; }
+  footer { color:var(--dim); padding:30px 20px 50px; font-size:12px; border-top:1px solid var(--line); margin-top:30px; }
 </style>
 </head>
 <body>
 <header>
-  <h1 id="title">run report</h1>
-  <div id="meta" class="dim"></div>
+  <div>
+    <h1 id="title">run report</h1>
+    <div id="meta" class="dim"></div>
+  </div>
+  <button id="theme-toggle" title="Toggle light / dark" aria-label="Toggle light / dark theme"></button>
 </header>
 
 <section>
@@ -64,30 +121,67 @@
 </section>
 
 <section>
-  <h2>Visualize</h2>
+  <h2>Overview</h2>
   <div id="filters">
-    <div><label>Namespace (harness / model)</label><select id="f-ns"></select></div>
-    <div><label>Metric</label><select id="f-metric"></select></div>
+    <div><label>X axis</label><select id="f-x"></select></div>
+    <div><label>Series (one line per)</label><select id="f-series"></select></div>
     <div><label>Chart</label><select id="f-chart">
       <option value="line">lines</option><option value="bar">bars</option></select></div>
+  </div>
+  <div id="filters" style="margin-top:6px">
+    <div><label>Models (harness / model)</label><div id="f-ns" class="chips"></div></div>
+    <div><label>Tiers</label><div id="f-tiers" class="chips"></div></div>
     <div><label>Tasks</label><div id="f-tasks" class="chips"></div></div>
   </div>
-  <div id="chart" class="plot" style="margin-top:14px"></div>
+  <div id="ov-legend" class="chartlegend" style="margin-top:12px"></div>
+  <div id="ov-grid" class="grid" style="margin-top:8px">
+    <div id="ov-match" class="plot"></div>
+    <div id="ov-time" class="plot"></div>
+    <div id="ov-newtok" class="plot"></div>
+    <div id="ov-err" class="plot"></div>
+  </div>
+</section>
+
+<section id="markers-section">
+  <h2>Label adoption</h2>
+  <div id="filters">
+    <div><label>Marker</label><select id="f-metric"></select></div>
+  </div>
+  <div id="marker-desc" class="dim" style="font-size:13px;margin-top:8px"></div>
+  <div id="chart" class="plot" style="margin-top:10px"></div>
 </section>
 
 <section>
-  <h2>Results <span id="results-hint" class="dim"></span></h2>
-  <div id="table"></div>
-</section>
-
-<section>
-  <h2>Distributions <span class="dim">per revision · every point is a run (hover for tier/task/run) · log scale</span></h2>
+  <h2>Distributions <span class="dim">every point is a run (hover for model/tier/task/run)</span></h2>
+  <div id="filters" style="margin-bottom:6px">
+    <div><label>Model</label><select id="f-dist-model"></select></div>
+    <div><label>Boxes by</label><select id="f-dist">
+      <option value="revision">revision</option>
+      <option value="model">model (per revision)</option></select></div>
+    <div><label>Scale</label><select id="f-dist-scale">
+      <option value="log">logarithmic</option>
+      <option value="linear">linear</option></select></div>
+  </div>
+  <div id="dist-hint" class="dim" style="font-size:12px;margin-bottom:8px"></div>
+  <div id="dist-legend" class="chartlegend" style="margin-bottom:8px"></div>
   <div class="grid">
     <div id="dist-time" class="plot"></div>
     <div id="dist-new" class="plot"></div>
     <div id="dist-rep" class="plot"></div>
     <div id="dist-out" class="plot"></div>
   </div>
+</section>
+
+<section>
+  <h2>Results <span id="results-hint" class="dim"></span></h2>
+  <div id="filters" style="margin-bottom:10px">
+    <div><label>Group by</label><select id="f-group">
+      <option value="model">model</option>
+      <option value="task">task</option>
+      <option value="both">model &amp; task</option>
+    </select></div>
+  </div>
+  <div id="table"></div>
 </section>
 
 <footer id="foot"></footer>
@@ -99,6 +193,14 @@ const DATA = JSON.parse(document.getElementById('ag-data').textContent);
 const REVS = DATA.revisions || [];
 const RUNS = DATA.runs || [];
 const MARKER_NAMES = DATA.marker_names || [];
+const MARKER_DESC = DATA.marker_desc || {};
+
+// Plotly colors follow the active (light/dark) theme — read from CSS variables.
+function themeColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const v = (n, d) => (cs.getPropertyValue(n).trim() || d);
+  return { fg: v('--fg', '#1f2937'), grid: v('--line', '#e5e7eb') };
+}
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -125,8 +227,27 @@ const TIER_COLOR = { bare:'#8a8a9a', clone:'#6366f1', skill:'#22c55e' };
 const PALETTE = ['#8a8a9a','#6366f1','#22c55e','#e8590c','#9333ea','#0891b2'];
 const colorForTier = t => TIER_COLOR[t] || PALETTE[TIERS.indexOf(t) % PALETTE.length];
 const TASKS = [...new Set(RUNS.map(r => r.task))].sort();
-const NSS = (DATA.namespaces && DATA.namespaces.length) ? DATA.namespaces
-            : [...new Set(RUNS.map(r => r.ns))].sort();
+// Parameter count (in billions) used to order models by size. Prefer the exact
+// count resolved from the Hub at generate time (DATA.model_params, in params);
+// otherwise parse the largest "<n>B" token out of the model id — for MoE ids
+// like "…-550B-A55B" that's the total (550B), not the active experts (55B).
+// Returns null when neither is available (sorted last, alphabetically).
+const MODEL_PARAMS = DATA.model_params || {};
+function paramB(ns) {
+  if (MODEL_PARAMS[ns] != null) return MODEL_PARAMS[ns] / 1e9;
+  const id = (ns.split('/').pop() || ns);
+  const hits = [...id.matchAll(/(\d+(?:\.\d+)?)\s*[bB]\b/g)].map(m => parseFloat(m[1]));
+  return hits.length ? Math.max(...hits) : null;
+}
+const NSS = ((DATA.namespaces && DATA.namespaces.length)
+             ? DATA.namespaces : [...new Set(RUNS.map(r => r.ns))]).slice()
+  .sort((a, b) => {
+    const pa = paramB(a), pb = paramB(b);
+    if (pa === null && pb === null) return a.localeCompare(b);
+    if (pa === null) return 1;     // unknown size → last
+    if (pb === null) return -1;
+    return pa - pb || a.localeCompare(b);
+  });
 const REV_PALETTE = ['#6366f1','#e8590c','#22c55e','#9333ea','#0891b2','#be185d','#a16207','#64748b'];
 const REV_COLOR = Object.fromEntries(REVS.map((c, i) => [c.sha, REV_PALETTE[i % REV_PALETTE.length]]));
 const revColor = sha => REV_COLOR[sha] || '#6366f1';
@@ -148,81 +269,192 @@ METRICS.push({ key:'newtok', label:'median new tokens',
   fn: rs => median(rs.map(r => (r.tok || {}).new || 0)) });
 const metricByKey = Object.fromEntries(METRICS.map(m => [m.key, m]));
 
-const state = { ns: NSS[0], metric: METRICS[0].key, chart: 'line', tasks: new Set(TASKS) };
+// the four headline metrics get their own always-on charts up top; the
+// configurable chart below then lets you pick among the remaining ones — the
+// profile's labels (markers). Falls back to the leftover metrics if a profile
+// declares no markers.
+const OVERVIEW_KEYS = ['match', 'time', 'newtok', 'err'];
+const CHOICE_METRICS = METRICS.filter(m => m.key.startsWith('mk:'));
+const CHOICE = CHOICE_METRICS.length ? CHOICE_METRICS : METRICS.filter(m => !OVERVIEW_KEYS.includes(m.key));
+
+// namespace (model) colors, for when "model" is the series dimension
+const NS_PALETTE = ['#6366f1','#e8590c','#22c55e','#9333ea','#0891b2','#be185d','#a16207','#64748b'];
+const NS_COLOR = Object.fromEntries(NSS.map((n, i) => [n, NS_PALETTE[i % NS_PALETTE.length]]));
+
+// compact model label for legends/tooltips: drop the "<harness>/" prefix, the
+// "<org>--" prefix, and any ":provider" routing suffix
+// (e.g. "pi/Qwen--Qwen2.5-7B-Instruct:together" → "Qwen2.5-7B-Instruct").
+const shortModel = ns => (ns.split('/').pop() || ns).split(':')[0].replace(/^.*?--/, '');
+// even shorter for crowded axis ticks (truncate long names; legend keeps full)
+const modelTick = ns => { const t = shortModel(ns); return t.length > 22 ? t.slice(0, 21) + '…' : t; };
+
+// the three pivot dimensions — any can be the X axis or the per-line series
+const DIMS = {
+  revision: { label:'revision', values: revOrder, val: r => r.sha,
+              tick: sha => dispName(revBySha[sha]), color: sha => revColor(sha) },
+  model:    { label:'model',    values: NSS,      val: r => r.ns,
+              tick: ns => shortModel(ns), color: ns => NS_COLOR[ns] || '#6366f1' },
+  tier:     { label:'tier',     values: TIERS,    val: r => r.tier,
+              tick: t => t, color: t => colorForTier(t) },
+};
+
+const state = {
+  nss: new Set(NSS), tiers: new Set(TIERS), tasks: new Set(TASKS),
+  metric: (CHOICE[0] || METRICS[0]).key, xdim: 'revision', series: 'tier',
+  chart: 'line', group: 'model', distSplit: 'revision', distModel: '', distScale: 'log',
+};
 
 // header + revisions
-document.getElementById('title').textContent = `${DATA.profile || 'ag'} — run report`;
+document.getElementById('title').textContent = `🤗 ${DATA.profile || 'ag'} — run report`;
 document.getElementById('meta').innerHTML =
   `${RUNS.length} runs · ${REVS.length} revisions · ${NSS.length} namespaces · ` +
   `generated ${esc(DATA.generated_at || '')}` + (DATA.bucket ? ` · bucket <code>${esc(DATA.bucket)}</code>` : '');
 
 document.getElementById('rev-list').innerHTML = REVS.map(c => {
-  const badge = (c.kind === 'branch' || c.kind === 'tag')
-    ? `<span class="badge ${c.kind}">${c.kind === 'tag' ? 'release' : 'branch'}: ${esc(c.ref || '')}</span>` : '';
+  const badge = c.kind === 'tag' ? '<span class="badge tag">release</span>' : '';
   const n = RUNS.filter(r => r.sha === c.sha).length;
-  const sub = [c.sha, c.date, c.subject].filter(x => x && x !== '?').map(esc).join(' · ');
   return `<div class="rev panel"><div class="nm">${esc(dispName(c))}${badge}</div>
-          <div class="dim" style="font-size:12px;margin-top:3px">${sub}</div>
-          <div class="dim" style="font-size:12px">${n} runs</div></div>`;
+          <div class="dim" style="font-size:12px;margin-top:3px">${n} runs</div></div>`;
 }).join('') || '<div class="dim">no revisions</div>';
 
 // filters
-const nsSel = document.getElementById('f-ns');
-nsSel.innerHTML = NSS.map(ns => `<option>${esc(ns)}</option>`).join('');
-nsSel.value = state.ns;
-nsSel.addEventListener('change', () => { state.ns = nsSel.value; renderAll(); });
-
 const mSel = document.getElementById('f-metric');
-mSel.innerHTML = METRICS.map(m => `<option value="${esc(m.key)}">${esc(m.label)}</option>`).join('');
-mSel.value = state.metric;
-mSel.addEventListener('change', () => { state.metric = mSel.value; renderAll(); });
+if (CHOICE.length) {
+  mSel.innerHTML = CHOICE.map(m => `<option value="${esc(m.key)}">${esc(m.label)}</option>`).join('');
+  mSel.value = state.metric;
+  mSel.addEventListener('change', () => { state.metric = mSel.value; renderChart(); });
+} else {
+  document.getElementById('markers-section').style.display = 'none';
+}
+
+const dimOpts = Object.entries(DIMS).map(([k, d]) => `<option value="${k}">${esc(d.label)}</option>`).join('');
+const xSel = document.getElementById('f-x');
+const sSel = document.getElementById('f-series');
+xSel.innerHTML = dimOpts; xSel.value = state.xdim;
+sSel.innerHTML = dimOpts; sSel.value = state.series;
+// X and series must differ — bump the other one when they'd collide
+function syncDims(changed) {
+  if (state.xdim !== state.series) return;
+  const other = Object.keys(DIMS).find(k => k !== state.xdim);
+  if (changed === 'x') { state.series = other; sSel.value = other; }
+  else { state.xdim = other; xSel.value = other; }
+}
+xSel.addEventListener('change', () => { state.xdim = xSel.value; syncDims('x'); renderViz(); });
+sSel.addEventListener('change', () => { state.series = sSel.value; syncDims('series'); renderViz(); });
 
 const cSel = document.getElementById('f-chart');
 cSel.value = state.chart;
-cSel.addEventListener('change', () => { state.chart = cSel.value; renderChart(); });
+cSel.addEventListener('change', () => { state.chart = cSel.value; renderViz(); });
 
-const tasksEl = document.getElementById('f-tasks');
-TASKS.forEach(t => {
-  const chip = document.createElement('span');
-  chip.className = 'chip on'; chip.textContent = t;
-  chip.addEventListener('click', () => {
-    if (state.tasks.has(t)) { state.tasks.delete(t); chip.classList.remove('on'); }
-    else { state.tasks.add(t); chip.classList.add('on'); }
-    renderAll();
+const gSel = document.getElementById('f-group');
+gSel.value = state.group;
+gSel.addEventListener('change', () => { state.group = gSel.value; renderTable(); });
+
+const dSel = document.getElementById('f-dist');
+dSel.value = state.distSplit;
+dSel.addEventListener('change', () => { state.distSplit = dSel.value; renderDistributions(); });
+
+const dmSel = document.getElementById('f-dist-model');
+dmSel.innerHTML = `<option value="">all models</option>` +
+  NSS.map(ns => `<option value="${esc(ns)}">${esc(shortModel(ns))}</option>`).join('');
+dmSel.value = state.distModel;
+dmSel.addEventListener('change', () => { state.distModel = dmSel.value; renderDistributions(); });
+
+const dscSel = document.getElementById('f-dist-scale');
+dscSel.value = state.distScale;
+dscSel.addEventListener('change', () => { state.distScale = dscSel.value; renderDistributions(); });
+
+// multi-select chip groups (toggle freely; empty = nothing in scope)
+function chipGroup(elId, keys, set, onchange) {
+  const el = document.getElementById(elId);
+  keys.forEach(k => {
+    const chip = document.createElement('span');
+    chip.className = set.has(k) ? 'chip on' : 'chip';
+    chip.textContent = k;
+    chip.addEventListener('click', () => {
+      if (set.has(k)) { set.delete(k); chip.classList.remove('on'); }
+      else { set.add(k); chip.classList.add('on'); }
+      onchange();
+    });
+    el.appendChild(chip);
   });
-  tasksEl.appendChild(chip);
-});
+}
+chipGroup('f-ns', NSS, state.nss, renderAll);
+chipGroup('f-tiers', TIERS, state.tiers, renderAll);
+chipGroup('f-tasks', TASKS, state.tasks, renderAll);
 
-const inScope = r => r.ns === state.ns && state.tasks.has(r.task);
+const inScope = r => state.nss.has(r.ns) && state.tiers.has(r.tier) && state.tasks.has(r.task);
 
-// chart: metric by revision, grouped by tier
-function renderChart() {
-  const m = metricByKey[state.metric];
+// a pivot — metric over the chosen X dimension, one line/bar per series value.
+// Used both by the headline overview charts and the configurable marker chart.
+function pivotTraces(m) {
+  const xd = DIMS[state.xdim], sd = DIMS[state.series];
   const rs = RUNS.filter(inScope);
-  const x = REVS.map(dispName);
+  const xPresent = new Set(rs.map(xd.val));
+  const xvals = xd.values.filter(v => xPresent.has(v));
+  const xtick = state.xdim === 'model' ? modelTick : xd.tick;  // truncate long model names on the axis
+  const x = xvals.map(xtick);
+  const sPresent = new Set(rs.map(sd.val));
+  const svals = sd.values.filter(v => sPresent.has(v));
   const isLine = state.chart === 'line';
-  const traces = TIERS.map(tier => {
-    const y = REVS.map(c => m.fn(rs.filter(r => r.sha === c.sha && r.tier === tier)));
-    const color = colorForTier(tier);
+  return svals.map(sv => {
+    const y = xvals.map(xv => m.fn(rs.filter(r => xd.val(r) === xv && sd.val(r) === sv)));
+    const color = sd.color(sv), name = sd.tick(sv);
     return isLine
-      ? { type: 'scatter', mode: 'lines+markers', name: tier, x, y,
+      ? { type: 'scatter', mode: 'lines+markers', name, x, y,
           line: { color, width: 2 }, marker: { color, size: 7 }, connectgaps: true }
-      : { type: 'bar', name: tier, x, y, marker: { color } };
+      : { type: 'bar', name, x, y, marker: { color } };
   });
+}
+// values of the current X dimension actually present in scope, and of the series
+function presentVals(dim) {
+  const d = DIMS[dim], present = new Set(RUNS.filter(inScope).map(d.val));
+  return d.values.filter(v => present.has(v));
+}
+function chartInto(divId, m, { mini = false, legend = true } = {}) {
+  // many categories → angle the ticks and cap the label area (truncated to ≤22
+  // chars upstream) so long model names don't blow the chart height open
+  const longX = presentVals(state.xdim).length > 5;
+  const baseB = mini ? 64 : 70;
+  const T = themeColors();
   const layout = {
-    barmode: 'group', height: 340,
-    margin: { l: 50, r: 10, t: 10, b: 70 },
+    barmode: 'group', height: mini ? 300 : 360,
+    margin: { l: mini ? 46 : 50, r: mini ? 8 : 10, t: mini ? 28 : 10, b: longX ? 120 : baseB },
     paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-    font: { color: '#e6e8ee' }, legend: { orientation: 'h', y: 1.15 },
-    yaxis: { title: m.label, gridcolor: '#2a2f3a', zeroline: false, rangemode: 'tozero' },
-    xaxis: { gridcolor: '#2a2f3a' },
+    font: { color: T.fg }, showlegend: legend,
+    legend: { orientation: 'h', y: mini ? -0.3 : 1.15, font: { size: 11 } },
+    yaxis: { title: mini ? '' : m.label, gridcolor: T.grid, zeroline: false, rangemode: 'tozero' },
+    xaxis: { gridcolor: T.grid, automargin: !longX, tickangle: longX ? -35 : 0 },
   };
-  Plotly.react('chart', traces, layout, { displayModeBar: false, responsive: true });
+  if (mini) layout.title = { text: m.label, font: { size: 13 }, x: 0, xanchor: 'left' };
+  Plotly.react(divId, pivotTraces(m), layout, { displayModeBar: false, responsive: true });
+}
+// a shared HTML swatch legend (avoids four overlapping in-plot legends)
+function legendHTML(dim) {
+  const d = DIMS[dim];
+  return presentVals(dim).map(v =>
+    `<span class="it"><span class="sw" style="background:${d.color(v)}"></span>${esc(d.tick(v))}</span>`
+  ).join('');
+}
+// headline charts share one series + one legend; widen to full width when the
+// X axis has many categories (e.g. all models) so long labels stop colliding.
+function renderOverview() {
+  document.getElementById('ov-legend').innerHTML = legendHTML(state.series);
+  const wide = presentVals(state.xdim).length > 5;
+  document.getElementById('ov-grid').style.gridTemplateColumns = wide ? '1fr' : '1fr 1fr';
+  OVERVIEW_KEYS.forEach(k => chartInto('ov-' + k, metricByKey[k], { mini: true, legend: false }));
+}
+function renderChart() {
+  if (!CHOICE.length) return;
+  // show the profile's one-line explanation of the selected marker
+  const name = state.metric.startsWith('mk:') ? state.metric.slice(3) : '';
+  document.getElementById('marker-desc').textContent = MARKER_DESC[name] || '';
+  chartInto('chart', metricByKey[state.metric]);
 }
 
 // results table (revision × tier × task), click a row to drill into its runs
-function cellRuns(sha, tier, task) {
-  return RUNS.filter(r => r.sha === sha && r.tier === tier && r.task === task && r.ns === state.ns);
+function cellRuns(ns, sha, tier, task) {
+  return RUNS.filter(r => r.ns === ns && r.sha === sha && r.tier === tier && r.task === task);
 }
 function markerSummary(rs) {
   return MARKER_NAMES.map(m => {
@@ -249,68 +481,217 @@ function drill(rs) {
     return `<div style="margin-bottom:12px"><div>${head}</div>${steps}${final}${trace}</div>`;
   }).join('');
 }
+// results grouped into collapsible categories (by model, task, or both)
+const GROUP_DIMS = { model: ['model'], task: ['task'], both: ['model', 'task'] };
+const GROUP_LABEL = { model: 'model', task: 'task' };
+const keyOf = (c, dim) => dim === 'model' ? c.ns : c.task;
+// the four right-hand summary columns (runs · ✓match·errors · markers · med time),
+// shared by data rows and by folded group headers so errors stay visible folded.
+function statCells(rs) {
+  const seen = rs.filter(r => r.matched !== null);
+  const matched = seen.length ? `${seen.filter(r => r.matched).length}/${seen.length}` : '—';
+  const errs = rs.filter(r => r.retry || r.exit !== 0 || (r.status && r.status !== 'ok')).length;
+  return `<td class="num">${rs.length}</td>
+    <td>✓ ${matched}${errs ? ` · <span class="bad">!${errs} err</span>` : ''}</td>
+    <td>${markerSummary(rs) || '<span class="dim">—</span>'}</td>
+    <td class="num">${Math.round(median(rs.map(r => r.elapsed)) || 0)}s</td>`;
+}
+function dataRow(c) {
+  const { ns, sha, tier, task, rs } = c;
+  return `<td>${esc(ns)}</td><td>${esc(dispName(revBySha[sha]))}</td><td>${esc(tier)}</td><td>${esc(task)}</td>${statCells(rs)}`;
+}
 function renderTable() {
-  const rows = [];
+  const nss = NSS.filter(n => state.nss.has(n));
+  const cells = [];
+  for (const ns of nss)
   for (const sha of revOrder) for (const tier of TIERS) for (const task of TASKS) {
-    if (!state.tasks.has(task)) continue;
-    const rs = cellRuns(sha, tier, task);
-    if (!rs.length) continue;
-    const seen = rs.filter(r => r.matched !== null);
-    const matched = seen.length ? `${seen.filter(r => r.matched).length}/${seen.length}` : '—';
-    const errs = rs.filter(r => r.retry || r.exit !== 0 || (r.status && r.status !== 'ok')).length;
-    const id = `d_${sha}_${tier}_${task}`.replace(/[^\w]/g, '_');
-    rows.push(`<tr class="cell" data-id="${id}">
-      <td>${esc(dispName(revBySha[sha]))}</td><td>${esc(tier)}</td><td>${esc(task)}</td>
-      <td class="num">${rs.length}</td>
-      <td>✓ ${matched}${errs ? ` · <span class="bad">!${errs}</span>` : ''}</td>
-      <td>${markerSummary(rs) || '<span class="dim">—</span>'}</td>
-      <td class="num">${Math.round(median(rs.map(r => r.elapsed)) || 0)}s</td>
-    </tr><tr id="${id}" style="display:none"><td colspan="7"><div class="drill">${drill(rs)}</div></td></tr>`);
+    if (!state.tiers.has(tier) || !state.tasks.has(task)) continue;
+    const rs = cellRuns(ns, sha, tier, task);
+    if (rs.length) cells.push({ ns, sha, tier, task, rs });
   }
-  document.getElementById('results-hint').textContent = `· ${state.ns} · click a row to drill into its runs`;
+
+  const dims = GROUP_DIMS[state.group];
+  const shaRank = s => revOrder.indexOf(s), tierRank = t => TIERS.indexOf(t);
+  cells.sort((a, b) => {
+    for (const d of dims) { const x = keyOf(a, d), y = keyOf(b, d); if (x !== y) return x < y ? -1 : 1; }
+    if (a.ns !== b.ns) return a.ns < b.ns ? -1 : 1;
+    if (a.task !== b.task) return a.task < b.task ? -1 : 1;
+    if (a.sha !== b.sha) return shaRank(a.sha) - shaRank(b.sha);
+    return tierRank(a.tier) - tierRank(b.tier);
+  });
+
+  // §-joined prefixes of a label path; used both as group keys and as the
+  // "owner" keys that hide a row when an ancestor group is collapsed.
+  const prefixes = (labels, n) => Array.from({ length: n }, (_, i) => labels.slice(0, i + 1).join('§'));
+  // aggregate every group's runs up front so a folded header can summarize them
+  const groupRuns = {};
+  for (const c of cells) {
+    const labels = dims.map(d => keyOf(c, d));
+    prefixes(labels, labels.length).forEach(k => (groupRuns[k] = groupRuns[k] || []).push(...c.rs));
+  }
+  const groupKeys = [];
+  const rows = [];
+  let prev = [];
+  for (const c of cells) {
+    const labels = dims.map(d => keyOf(c, d));
+    let diff = 0; while (diff < labels.length && prev[diff] === labels[diff]) diff++;
+    for (let i = diff; i < labels.length; i++) {
+      const selfKey = labels.slice(0, i + 1).join('§');
+      const owners = prefixes(labels, i).join('|');   // ancestors only
+      groupKeys.push(selfKey);
+      rows.push(`<tr class="grp" data-key="${esc(selfKey)}" data-owners="${esc(owners)}">
+        <td colspan="4" style="padding-left:${6 + i * 18}px"><span class="caret">▸</span>
+        <b>${esc(labels[i])}</b> <span class="dim">${esc(GROUP_LABEL[dims[i]])}</span></td>
+        ${statCells(groupRuns[selfKey])}</tr>`);
+    }
+    prev = labels;
+    const owners = prefixes(labels, labels.length).join('|');  // all ancestors
+    const id = `d_${c.ns}_${c.sha}_${c.tier}_${c.task}`.replace(/[^\w]/g, '_');
+    rows.push(`<tr class="cell grp-row" data-detail="${id}" data-owners="${esc(owners)}">${dataRow(c)}</tr>`);
+    rows.push(`<tr id="${id}" class="drill-row" data-owners="${esc(owners)}" style="display:none"><td colspan="8"><div class="drill">${drill(c.rs)}</div></td></tr>`);
+  }
+
+  document.getElementById('results-hint').textContent =
+    `· ${cells.length} cell(s) across ${nss.length} model(s) · click a category to unfold it, a row to drill into its runs`;
   document.getElementById('table').innerHTML = rows.length ? `<table>
-    <thead><tr><th>Revision</th><th>Tier</th><th>Task</th><th class="num">runs</th>
+    <thead><tr><th>Model</th><th>Revision</th><th>Tier</th><th>Task</th><th class="num">runs</th>
     <th>✓match · errors</th><th>markers</th><th class="num">med time</th></tr></thead>
     <tbody>${rows.join('')}</tbody></table>`
-    : '<div class="dim">no runs for this namespace / task selection</div>';
-  document.querySelectorAll('tr.cell').forEach(tr => tr.addEventListener('click', () => {
-    const d = document.getElementById(tr.dataset.id);
-    d.style.display = d.style.display === 'none' ? '' : 'none';
+    : '<div class="dim">no runs for this model / tier / task selection</div>';
+
+  const collapsed = new Set(groupKeys), expanded = new Set();  // start fully folded
+  const owned = tr => (tr.dataset.owners || '').split('|').filter(Boolean);
+  function applyCollapse() {
+    document.querySelectorAll('#table tr.grp, #table tr.grp-row').forEach(tr => {
+      tr.style.display = owned(tr).some(k => collapsed.has(k)) ? 'none' : '';
+    });
+    document.querySelectorAll('#table tr.drill-row').forEach(tr => {
+      const hidden = owned(tr).some(k => collapsed.has(k));
+      tr.style.display = (!hidden && expanded.has(tr.id)) ? '' : 'none';
+    });
+    document.querySelectorAll('#table tr.grp').forEach(tr => {
+      const car = tr.querySelector('.caret');
+      if (car) car.textContent = collapsed.has(tr.dataset.key) ? '▸' : '▾';
+    });
+  }
+  document.querySelectorAll('#table tr.grp').forEach(tr => tr.addEventListener('click', () => {
+    const k = tr.dataset.key; collapsed.has(k) ? collapsed.delete(k) : collapsed.add(k); applyCollapse();
   }));
+  document.querySelectorAll('#table tr.grp-row').forEach(tr => tr.addEventListener('click', () => {
+    const id = tr.dataset.detail; expanded.has(id) ? expanded.delete(id) : expanded.add(id); applyCollapse();
+  }));
+  applyCollapse();
 }
 
-// distributions: one box+strip per revision, log scale (elapsed + token columns)
+// runs in scope for the distributions: a single model when one is picked from
+// the dropdown (ignoring the model chips), else the chip-selected models.
+// Tier/task chips always apply.
+function distRuns() {
+  const base = RUNS.filter(r => state.tiers.has(r.tier) && state.tasks.has(r.task));
+  return state.distModel ? base.filter(r => r.ns === state.distModel)
+                         : base.filter(r => state.nss.has(r.ns));
+}
+// distributions box+strip, log scale. Layouts:
+//  • one box per revision (default, or whenever a single model is picked) — see
+//    how that model / the selected set behaves across commits.
+//  • "model" split with all models: within each revision, one box per model,
+//    colored by model, grouped — compare models on each commit.
 function boxFig(divId, title, valueFn) {
-  const rs = RUNS.filter(inScope);
-  const traces = REVS.map(c => {
-    const cr = rs.filter(r => r.sha === c.sha);
-    return {
-      type: 'box', name: dispName(c),
-      y: cr.map(valueFn),
-      text: cr.map(r => `${r.tier} · ${r.task} · run${r.run}`),
-      hoverinfo: 'y+text',
-      boxpoints: 'all', jitter: 0.5, pointpos: 0,
-      marker: { color: revColor(c.sha), size: 4, opacity: 0.7 },
-      line: { color: revColor(c.sha) }, fillcolor: revColor(c.sha) + '22',
-    };
-  });
-  Plotly.react(divId, traces, {
+  const rs = distRuns();
+  const byModel = !state.distModel && state.distSplit === 'model';
+  const tip = r => `${shortModel(r.ns)} · ${r.tier} · ${r.task} · run${r.run}`;
+  let traces;
+  if (byModel) {
+    traces = NSS.filter(n => state.nss.has(n)).map(ns => {
+      const cr = rs.filter(r => r.ns === ns), col = DIMS.model.color(ns);
+      return {
+        type: 'box', name: shortModel(ns),
+        x: cr.map(r => dispName(revBySha[r.sha])), y: cr.map(valueFn),
+        text: cr.map(tip), hoverinfo: 'y+text',
+        boxpoints: 'all', jitter: 0.5, pointpos: 0,
+        marker: { color: col, size: 4, opacity: 0.7 }, line: { color: col }, fillcolor: col + '22',
+      };
+    });
+  } else {
+    traces = REVS.map(c => {
+      const cr = rs.filter(r => r.sha === c.sha), col = revColor(c.sha);
+      return {
+        type: 'box', name: dispName(c), y: cr.map(valueFn),
+        text: cr.map(tip), hoverinfo: 'y+text',
+        boxpoints: 'all', jitter: 0.5, pointpos: 0,
+        marker: { color: col, size: 4, opacity: 0.7 }, line: { color: col }, fillcolor: col + '22',
+      };
+    });
+  }
+  const T = themeColors();
+  const layout = {
     title: { text: title, font: { size: 13 }, x: 0, xanchor: 'left' },
-    height: 300, showlegend: false, margin: { l: 52, r: 10, t: 30, b: 50 },
-    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: { color: '#e6e8ee' },
-    yaxis: { type: 'log', gridcolor: '#2a2f3a', zeroline: false },
-    xaxis: { gridcolor: '#2a2f3a' },
-  }, { displayModeBar: false, responsive: true });
+    height: 300, showlegend: false, margin: { l: 52, r: 10, t: 30, b: 70 },
+    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: { color: T.fg },
+    yaxis: { type: state.distScale === 'linear' ? 'linear' : 'log', gridcolor: T.grid, zeroline: false },
+    xaxis: { gridcolor: T.grid, automargin: true },
+  };
+  // only the per-model view groups multiple boxes per revision category; the
+  // revision view keeps one wide box per trace (default boxmode), as before
+  if (byModel) {
+    layout.boxmode = 'group';
+    layout.xaxis.categoryorder = 'array';
+    layout.xaxis.categoryarray = REVS.map(dispName);
+  }
+  Plotly.react(divId, traces, layout, { displayModeBar: false, responsive: true });
 }
 function renderDistributions() {
+  const byModel = !state.distModel && state.distSplit === 'model';
+  // a shared swatch legend maps colors → models only in the multi-model compare view
+  document.getElementById('dist-legend').innerHTML = byModel ? legendHTML('model') : '';
+  document.getElementById('dist-hint').textContent = state.distModel
+    ? `Showing ${shortModel(state.distModel)} across revisions. Pick "all models" to compare, or use the model chips up top.`
+    : 'Pick a single model to see it across revisions, or use the model chips up top to focus the set.';
   boxFig('dist-time', 'elapsed (s)', r => r.elapsed);
   boxFig('dist-new', 'new tokens', r => (r.tok || {}).new || 0);
   boxFig('dist-rep', 'repeat tokens', r => (r.tok || {}).rep || 0);
   boxFig('dist-out', 'out tokens', r => (r.tok || {}).out || 0);
+  resizePlots(['dist-time', 'dist-new', 'dist-rep', 'dist-out']);
 }
 
-function renderAll() { renderChart(); renderTable(); renderDistributions(); }
+// Plotly sizes to the container at react() time; when we switch the overview to
+// full-width (single column) the grid hasn't reflowed yet, so the plot would
+// keep a stale (half) width. Resize on the next frame, once layout has settled.
+function resizePlots(ids) {
+  requestAnimationFrame(() => ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.data) Plotly.Plots.resize(el);
+  }));
+}
+function renderViz() {
+  renderOverview(); renderChart();
+  resizePlots(['ov-match', 'ov-time', 'ov-newtok', 'ov-err', 'chart']);
+}
+function renderAll() { renderViz(); renderTable(); renderDistributions(); }
 renderAll();
+
+// --- theme: manual toggle + OS-change follow ---
+// `manualTheme` is set once the user clicks the toggle (or the Space pins
+// ?__theme=), after which we stop following the OS preference.
+let manualTheme = !!new URLSearchParams(location.search).get('__theme');
+function applyTheme(dark) {
+  const root = document.documentElement.classList;
+  root.remove('dark', 'light');
+  root.add(dark ? 'dark' : 'light');
+  document.getElementById('theme-toggle').textContent = dark ? '☀ Light' : '☾ Dark';
+  renderViz(); renderDistributions();   // re-render so Plotly picks up theme colors
+}
+applyTheme(document.documentElement.classList.contains('dark'));
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  manualTheme = true;
+  applyTheme(!document.documentElement.classList.contains('dark'));
+});
+if (window.matchMedia) {
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  const onThemeChange = e => { if (!manualTheme) applyTheme(e.matches); };
+  mq.addEventListener ? mq.addEventListener('change', onThemeChange)
+                      : mq.addListener(onThemeChange);
+}
 
 document.getElementById('foot').innerHTML =
   `Static report generated by <code>ag report</code>. Profile: <code>${esc(DATA.profile || '')}</code>. ` +

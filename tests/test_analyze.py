@@ -50,6 +50,38 @@ def test_cell_without_markers_has_no_tag(write_run):
     assert "🏷" not in analyze.cell([run], [])
 
 
+def test_empty_run_reclassified_from_ok(write_run):
+    # no tool calls, no final answer, zero output tokens, but the runner exited "ok"
+    # (e.g. an unknown model id that returned an empty completion) → "empty", not "ok"
+    jsonl = write_run(
+        "abc1234567", "bare", "classify-sentiment",
+        final="", status="ok", exit_code=0,
+        tokens={"in": 0, "out": 0, "cache_read": 0, "cache_creation": 0},
+    )
+    run = analyze.parse(jsonl, "classify-sentiment")
+    assert run.status == "empty"
+
+
+def test_zero_tokens_with_output_stays_ok(write_run):
+    # a run that produced a final answer is real work even if token accounting is 0
+    jsonl = write_run(
+        "abc1234567", "bare", "classify-sentiment",
+        final="positive", status="ok",
+        tokens={"in": 0, "out": 0, "cache_read": 0, "cache_creation": 0},
+    )
+    assert analyze.parse(jsonl, "classify-sentiment").status == "ok"
+
+
+def test_empty_does_not_override_existing_failure(write_run):
+    # a non-ok status (timeout/error/…) is never downgraded to "empty"
+    jsonl = write_run(
+        "abc1234567", "bare", "classify-sentiment",
+        final="", status="timeout",
+        tokens={"in": 0, "out": 0, "cache_read": 0, "cache_creation": 0},
+    )
+    assert analyze.parse(jsonl, "classify-sentiment").status == "timeout"
+
+
 def test_discover_task_ids(write_run, data_root):
     write_run("abc1234567", "bare", "classify-sentiment")
     write_run("abc1234567", "clone", "tokenize-count")

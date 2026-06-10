@@ -70,7 +70,7 @@ def classify_ref(ref: str) -> dict:
     return {"ref": ref, "kind": kind}
 
 
-def record_ref(ref: str, sha: str, name: str | None = None) -> None:
+def record_ref(ref: str, sha: str, name: str | None = None, profile: str = "transformers") -> None:
     """Persist what the commit was tested *as* to ``results/<short>/ref.json``
     so the label travels with the results (and into the bucket / report).
 
@@ -78,6 +78,8 @@ def record_ref(ref: str, sha: str, name: str | None = None) -> None:
     - a branch/tag label is never downgraded by a later raw-SHA re-run;
     - an explicit ``--name`` updates the experiment title; without one, an
       existing title is kept.
+    - ``profile`` records which profile produced the binding so the report can
+      scope to one profile (e.g. keep mock runs out of the transformers report).
     """
     import json
 
@@ -89,7 +91,7 @@ def record_ref(ref: str, sha: str, name: str | None = None) -> None:
         existing = {}
     if existing.get("kind") in ("branch", "tag") and info["kind"] == "commit":
         info = {"ref": existing["ref"], "kind": existing["kind"]}
-    out = {**info, "sha": sha}
+    out = {**info, "sha": sha, "profile": profile}
     if name:
         out["name"] = name
     elif existing.get("name"):

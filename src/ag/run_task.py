@@ -11,12 +11,11 @@ from pathlib import Path
 
 import yaml
 
+from . import store
 from .log import extract_usage, log, summarize_event, vlog
 from .paths import (
     package_data_path,
-    results_dir,
     results_label,
-    traces_dir,
     workspaces_dir,
 )
 from .runners import get_runner
@@ -65,9 +64,6 @@ def run(
     assets = profile.agent_assets(built, tier)
 
     ns = results_label(runner, model)
-    rdir = results_dir(built.binding, ns)
-    out_path = rdir / f"{tier}__{task_id}__run{run_idx}.jsonl"
-    meta_path = rdir / f"{tier}__{task_id}__run{run_idx}.meta.json"
 
     # Per-run staging dir for the agent's *native* session. Always captured —
     # sharing traces (Hub agent-traces viewer) is the point of the harness.
@@ -80,7 +76,7 @@ def run(
         return _run_body(
             runner_impl, ws, built, assets, session_dir,
             prompt, tier, task_id, run_idx, ref, ns,
-            out_path, meta_path, model, runner, max_tool_calls,
+            model, runner, max_tool_calls,
         )
     finally:
         # Workspaces (e.g. a full transformers worktree for the `clone` tier) and
@@ -103,12 +99,10 @@ def _run_body(
     run_idx: int,
     ref: str,
     ns: str | None,
-    out_path: Path,
-    meta_path: Path,
     model: str | None,
     runner: str,
     max_tool_calls: int,
-) -> Path:
+):
     # Aliases so the recording/logging below stays identical to the pre-profile code.
     variant = tier
     short = built.binding
@@ -136,7 +130,8 @@ def _run_body(
         bufsize=1,  # line-buffered
     )
     budget_hit = False
-    with open(out_path, "w") as f:
+    events: list = []  # canonical transcript events, bundled into the cell file at the end
+    if True:
         assert proc.stdout is not None
         for line in proc.stdout:
             try:
@@ -144,9 +139,9 @@ def _run_body(
             except json.JSONDecodeError:
                 continue
             # Normalize the runner's native event(s) to the canonical schema,
-            # then write *those* so the read-side stays runner-agnostic.
+            # then collect *those* so the read-side stays runner-agnostic.
             for event in runner_impl.normalize(raw):
-                f.write(json.dumps(event) + "\n")
+                events.append(event)
                 if event.get("type") == "assistant":
                     delta = extract_usage(event)
                     for k, v in delta.items():
@@ -183,41 +178,38 @@ def _run_body(
     if status == "ok" and (result_is_error or proc.returncode not in (0, None)):
         status = "error"
 
-    # Collect the agent's native session file (for Hub agent-traces upload).
-    trace_path: Path | None = None
+    # Collect the agent's native session (bundled verbatim into the traces cell
+    # file; upload.py unpacks it back into a per-run file for the Hub viewer).
+    have_trace = False
     native = runner_impl.collect_session(session_dir, ws)
     if native and native.exists():
-        tdir = traces_dir(short, ns)
-        trace_path = tdir / f"{variant}__{task_id}__run{run_idx}.jsonl"
-        shutil.copyfile(native, trace_path)
+        store.upsert_trace(short, ns, variant, task_id, run_idx, native.read_text())
+        have_trace = True
     else:
         log("  (no native session captured for this run)")
 
-    meta_path.write_text(
-        json.dumps(
-            {
-                "sha": sha,
-                "short_sha": short,
-                "ref": ref,
-                "variant": variant,
-                "task_id": task_id,
-                "run_index": run_idx,
-                "runner": runner,
-                "model": model,
-                "status": status,
-                "tool_call_count": tool_call_count,
-                "max_tool_calls": max_tool_calls,
-                "elapsed_sec": round(elapsed, 1),
-                "exit_code": proc.returncode,
-                "tokens": totals,
-                "stderr_tail": stderr_output[-2000:],
-                "cmd": " ".join(shlex.quote(c) for c in _redact_cmd(cmd)),
-                "workspace": str(ws),
-                "trace_path": str(trace_path) if trace_path else None,
-            },
-            indent=2,
-        )
-    )
+    meta = {
+        "sha": sha,
+        "short_sha": short,
+        "ref": ref,
+        "variant": variant,
+        "task_id": task_id,
+        "run_index": run_idx,
+        "runner": runner,
+        "model": model,
+        "status": status,
+        "tool_call_count": tool_call_count,
+        "max_tool_calls": max_tool_calls,
+        "elapsed_sec": round(elapsed, 1),
+        "exit_code": proc.returncode,
+        "tokens": totals,
+        "stderr_tail": stderr_output[-2000:],
+        "cmd": " ".join(shlex.quote(c) for c in _redact_cmd(cmd)),
+        "workspace": str(ws),
+        "has_trace": have_trace,
+    }
+    record = store.RunRecord(tier=variant, task=task_id, run=run_idx, meta=meta, events=events)
+    cell_path = store.upsert_run(short, ns, record)
 
     tok_summary = (
         f"tokens in:{totals['in']} out:{totals['out']}"
@@ -226,6 +218,6 @@ def _run_body(
     status_tag = "" if status == "ok" else f"  status={status}"
     log(
         f"■ {short} {variant} {task_id} run{run_idx}  {elapsed:.1f}s  "
-        f"exit={proc.returncode}{status_tag}  {tok_summary}  → {out_path.name}"
+        f"exit={proc.returncode}{status_tag}  {tok_summary}  → {cell_path.name}"
     )
-    return out_path
+    return record

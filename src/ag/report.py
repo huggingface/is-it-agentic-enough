@@ -24,13 +24,14 @@ import subprocess
 import urllib.request
 from pathlib import Path
 
+from . import store
 from .analyze import parse as parse_run, step_kind
 from .markers import fired as _markers_fired
 from .log import log
 from .paths import package_data_path, state_root
 from .run_task import load_tasks
 from .sync import _git_meta, write_manifest
-from .transcript import parse_transcript
+from .transcript import parse_events
 from .upload import _have_hf_cli
 from .util import read_meta
 
@@ -119,19 +120,18 @@ def _step_record(step) -> dict:
     return rec
 
 
-def _run_record(jsonl: Path, sha: str, harness: str, model_id: str,
-                tier: str, task: str, run_idx: int, markers: list) -> dict:
-    run = parse_run(jsonl, task)
-    tx = parse_transcript(jsonl)
+def _run_record(rec, sha: str, harness: str, model_id: str, markers: list) -> dict:
+    run = parse_run(rec, rec.task)
+    tx = parse_events(rec.events)
     fired = _markers_fired(markers, run)
     return {
         "sha": sha,
         "ns": f"{harness}/{model_id}",
         "harness": harness,
         "model_id": model_id,
-        "tier": tier,
-        "task": task,
-        "run": run_idx,
+        "tier": rec.tier,
+        "task": rec.task,
+        "run": rec.run,
         "status": run.status,
         "exit": run.exit_code,
         "markers": [name for name, hit in fired.items() if hit],
@@ -146,10 +146,41 @@ def _run_record(jsonl: Path, sha: str, harness: str, model_id: str,
             "rep": run.tokens_cache_read,
             "out": run.tokens_out,
         },
-        "trace_rel": f"{sha}/{harness}/{model_id}/{jsonl.name}",
+        "trace_rel": f"{sha}/{harness}/{model_id}.jsonl",
         "final": (run.final or "")[:FINAL_MAX],
         "steps": [_step_record(s) for s in tx.steps],
     }
+
+
+def _model_params(namespaces: set[str]) -> dict[str, int]:
+    """Best-effort total parameter count per namespace via the Hub's safetensors
+    metadata, so the report can order models by true size rather than guessing
+    from the id. Each namespace is ``<harness>/<model_id>`` with ``/`` in the
+    model id encoded as ``--``. Failures (offline, gated, nonexistent repo, no
+    safetensors) are skipped silently — the report falls back to parsing a size
+    out of the model id client-side."""
+    out: dict[str, int] = {}
+    try:
+        from huggingface_hub import HfApi
+    except Exception:  # noqa: BLE001
+        return out
+    api = HfApi()
+    seen: dict[str, int | None] = {}
+    for ns in namespaces:
+        harness, _, model_id = ns.partition("/")
+        if harness == "mock" or not model_id or model_id == "default":
+            continue
+        # drop any ":provider" routing suffix (e.g. "…-7B-Instruct:together")
+        repo = model_id.replace("--", "/").split(":", 1)[0]
+        if repo not in seen:
+            try:
+                st = api.model_info(repo, expand=["safetensors"]).safetensors
+                seen[repo] = int(st.total) if st and st.total else None
+            except Exception:  # noqa: BLE001
+                seen[repo] = None
+        if seen[repo]:
+            out[ns] = seen[repo]
+    return out
 
 
 def collect_records(refs: list[str] | None = None, *, markers: list | None = None,
@@ -162,18 +193,25 @@ def collect_records(refs: list[str] | None = None, *, markers: list | None = Non
     shas: set[str] = set()
     namespaces: set[str] = set()
 
-    for jsonl in sorted(root.glob("*/*/*/*.jsonl")):
-        sha, harness, model_id, _fname = jsonl.relative_to(root).parts
-        if refs and sha not in refs:
+    # Scope to bindings produced by this profile. ``ref.json`` records the
+    # producing profile; legacy data without the key predates the mock profile
+    # and is all transformers, so a missing key counts as the requested profile.
+    _profile_of: dict[str, bool] = {}
+
+    def _in_profile(sha: str) -> bool:
+        if sha not in _profile_of:
+            info = read_meta(root / sha / "ref.json") or {}
+            _profile_of[sha] = info.get("profile", profile_name) == profile_name
+        return _profile_of[sha]
+
+    for sha, ns in store.iter_cells(refs):
+        if not _in_profile(sha):
             continue
-        try:
-            tier, task, runtok = jsonl.stem.split("__")
-        except ValueError:
-            continue  # unexpected filename; skip
-        run_idx = int(runtok.replace("run", "") or 0)
-        runs.append(_run_record(jsonl, sha, harness, model_id, tier, task, run_idx, markers))
+        harness, _, model_id = ns.partition("/")
+        for rec in store.list_runs(sha, ns):
+            runs.append(_run_record(rec, sha, harness, model_id, markers))
         shas.add(sha)
-        namespaces.add(f"{harness}/{model_id}")
+        namespaces.add(ns)
 
     # Commit metadata: prefer the (freshly written) manifest, fall back to git.
     manifest: dict = {}
@@ -205,7 +243,9 @@ def collect_records(refs: list[str] | None = None, *, markers: list | None = Non
         "tasks": tasks_meta,
         "revisions": commits,
         "namespaces": sorted(namespaces),
+        "model_params": _model_params(namespaces),
         "marker_names": [m.name for m in markers],
+        "marker_desc": {m.name: getattr(m, "description", "") for m in markers},
         "runs": runs,
     }
 

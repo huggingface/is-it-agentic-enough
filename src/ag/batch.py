@@ -101,12 +101,15 @@ def expand(cfg: dict) -> list[Cell]:
     return cells
 
 
-def _cell_args(cfg: dict, cell: Cell) -> SimpleNamespace:
-    """A suite-args namespace for one cell (consumed by job/run_suite)."""
+def _cell_args(cfg: dict, cell: Cell, force: bool = False) -> SimpleNamespace:
+    """A suite-args namespace for one cell (consumed by job/run_suite).
+
+    ``force`` (from ``--force-rerun``) overrides the YAML's ``force_rerun``."""
     return SimpleNamespace(
         profile=cell.profile, ref=cell.ref, name=cell.name, model=cell.model, runner=cell.runner,
         tasks=cfg.get("tasks"), tiers=cfg.get("tiers"), runs=cfg.get("runs"),
-        max_tool_calls=cfg.get("max_tool_calls", 50), force_rerun=cfg.get("force_rerun", False),
+        max_tool_calls=cfg.get("max_tool_calls", 50),
+        force_rerun=force or cfg.get("force_rerun", False),
         flavor=cfg.get("flavor", DEFAULT_FLAVOR), timeout=cfg.get("timeout", DEFAULT_TIMEOUT),
         image=cfg.get("image", DEFAULT_IMAGE), bucket=cfg.get("bucket", DEFAULT_BUCKET),
     )
@@ -194,13 +197,15 @@ def _status(path, *, watch: bool, poll: int) -> int:
 
 
 def run_batch(path, *, submit: bool = False, watch: bool = False, status: bool = False,
-              poll: int = 30) -> int:
+              poll: int = 30, force: bool = False) -> int:
     if status:
         return _status(path, watch=watch, poll=poll)
 
     cfg = load_batch(path)
     cells = expand(cfg)
     log(plan_lines(cfg, cells))
+    if force or cfg.get("force_rerun"):
+        log("force-rerun: existing results for these cells will be recomputed, not skipped.")
     if not submit:
         log("DRY RUN — re-run with --submit to launch (pi cells → HF Jobs, claude cells → local).")
         return 0
@@ -212,7 +217,7 @@ def run_batch(path, *, submit: bool = False, watch: bool = False, status: bool =
     submitted: list[tuple[Cell, str]] = []  # (cell, job_id)
     failures: list[str] = []
     for c in cells:
-        args = _cell_args(cfg, c)
+        args = _cell_args(cfg, c, force)
         try:
             if c.runner == "pi":
                 ji = submit_job_api(args)

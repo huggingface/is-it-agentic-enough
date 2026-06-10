@@ -13,10 +13,10 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from . import matcher
+from . import matcher, store
 from .markers import fired
-from .paths import package_data_path, results_dir
-from .transcript import parse_transcript
+from .paths import package_data_path
+from .transcript import parse_events
 from .util import fmt_tokens, median
 
 # Fallback tiers when a caller doesn't pass any (keeps direct/legacy callers
@@ -37,7 +37,7 @@ class Run:
     tokens_cache_read: int
     tokens_cache_creation: int
     exit_code: int
-    status: str                    # "ok" | "budget_tool_calls" | "timeout" | "error"
+    status: str                    # "ok" | "empty" | "budget_tool_calls" | "timeout" | "error"
 
     # Derived:
     errored_calls: int             # count of tool_results with is_error=true
@@ -75,8 +75,9 @@ def _task_match_modes() -> dict[str, str]:
 # --------- parsing ---------
 
 
-def parse(path: Path, task_id: str) -> Run:
-    tx = parse_transcript(path)
+def parse(record, task_id: str) -> Run:
+    """Build a :class:`Run` from a :class:`ag.store.RunRecord` (events + meta)."""
+    tx = parse_events(record.events)
     expected = _task_expectations().get(task_id)
     mode = _task_match_modes().get(task_id, matcher.DEFAULT_MODE)
 
@@ -96,11 +97,19 @@ def parse(path: Path, task_id: str) -> Run:
                 break
 
     final = tx.final
-    meta_path = path.with_suffix(".meta.json")
-    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    meta = record.meta or {}
     tokens = meta.get("tokens") or {}
 
     matched = matcher.check(expected, final, mode) if (expected and final is not None) else None
+
+    # Silent-failure guard: a run that generated nothing — no output tokens, no
+    # tool calls, no final answer — exited "ok" but did no work (e.g. an unknown
+    # model id that the provider accepted then returned an empty completion).
+    # Reclassify it as "empty" so it surfaces as an error instead of a silent 0.
+    status = str(meta.get("status") or "ok")
+    if status == "ok" and not tool_calls and not (final and final.strip()) \
+            and int(tokens.get("out") or 0) == 0:
+        status = "empty"
 
     return Run(
         tool_calls=tool_calls,
@@ -112,7 +121,7 @@ def parse(path: Path, task_id: str) -> Run:
         tokens_cache_read=int(tokens.get("cache_read") or 0),
         tokens_cache_creation=int(tokens.get("cache_creation") or 0),
         exit_code=int(meta.get("exit_code") or 0),
-        status=str(meta.get("status") or "ok"),
+        status=status,
         errored_calls=errored_calls,
         error_details=error_details,
         matched_expected=matched,
@@ -206,10 +215,8 @@ def cell(runs: list[Run], markers: list | None = None) -> str:
 
 
 def load_runs(short_sha: str, variant: str, task_id: str, ns: str | None = None) -> list[Run]:
-    return [
-        parse(p, task_id)
-        for p in sorted(results_dir(short_sha, ns).glob(f"{variant}__{task_id}__run*.jsonl"))
-    ]
+    recs = [r for r in store.list_runs(short_sha, ns) if r.tier == variant and r.task == task_id]
+    return [parse(r, task_id) for r in sorted(recs, key=lambda r: r.run)]
 
 
 # --------- rendering ---------
@@ -259,11 +266,11 @@ def _task_section(
 
 
 def discover_task_ids(short_sha: str, ns: str | None = None) -> list[str]:
+    if ns:
+        return store.discover_tasks(short_sha, ns)
     ids: set[str] = set()
-    for path in results_dir(short_sha, ns).glob("*.jsonl"):
-        parts = path.stem.split("__")
-        if len(parts) == 3:
-            ids.add(parts[1])
+    for binding, cell_ns in store.iter_cells([short_sha]):
+        ids.update(store.discover_tasks(binding, cell_ns))
     return sorted(ids)
 
 

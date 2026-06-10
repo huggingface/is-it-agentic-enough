@@ -79,6 +79,13 @@ def test_cell_args_threads_config(tmp_path):
     assert a.runs is None  # not set → per-task default downstream
 
 
+def test_force_flag_overrides_cfg(tmp_path):
+    cfg = batch.load_batch(_write(tmp_path, CONFIG))
+    cell = batch.expand(cfg)[0]
+    assert batch._cell_args(cfg, cell).force_rerun is False           # neither YAML nor flag
+    assert batch._cell_args(cfg, cell, force=True).force_rerun is True  # --force-rerun wins
+
+
 def test_status_without_state_file_errors(tmp_path, data_root):
     p = tmp_path / "m.yaml"
     p.write_text("ignored")  # status mode doesn't parse the YAML, only its stem

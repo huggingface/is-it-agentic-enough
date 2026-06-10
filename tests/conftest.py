@@ -48,27 +48,26 @@ def _events(*, tool_calls=(), final="done", final_error=False):
 
 @pytest.fixture
 def write_run(data_root):
-    """Factory: write a synthetic run's .jsonl + .meta.json into the layout
-    ``results/<binding>/<ns>/<tier>__<task>__run<N>.jsonl`` and return the path."""
+    """Factory: write a synthetic run as one line in its cell file
+    ``results/<binding>/<harness>/<model_id>.jsonl`` via the store, and return
+    the :class:`ag.store.RunRecord` (the read-side now parses records, not files)."""
+    from ag import store
 
     def _write(binding, tier, task, run=1, *, ns="claude/default",
                tool_calls=(), final="done", final_error=False,
                status="ok", exit_code=0, elapsed=12.0,
                tokens=None):
-        rdir = data_root / "results" / binding / ns
-        rdir.mkdir(parents=True, exist_ok=True)
-        base = rdir / f"{tier}__{task}__run{run}"
         evs = _events(tool_calls=tool_calls, final=final, final_error=final_error)
-        base.with_suffix(".jsonl").write_text("\n".join(json.dumps(e) for e in evs) + "\n")
         meta = {
             "sha": binding + "0" * 30, "short_sha": binding, "ref": binding,
             "variant": tier, "task_id": task, "run_index": run,
-            "runner": "claude", "model": None, "status": status,
+            "runner": ns.split("/", 1)[0], "model": None, "status": status,
             "tool_call_count": len(tool_calls), "exit_code": exit_code,
             "elapsed_sec": elapsed,
             "tokens": tokens or {"in": 100, "out": 20, "cache_read": 5, "cache_creation": 0},
         }
-        base.with_suffix(".meta.json").write_text(json.dumps(meta))
-        return base.with_suffix(".jsonl")
+        rec = store.RunRecord(tier=tier, task=task, run=run, meta=meta, events=evs)
+        store.upsert_run(binding, ns, rec)
+        return rec
 
     return _write

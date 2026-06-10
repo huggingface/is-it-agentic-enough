@@ -24,11 +24,11 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+from . import store
 from .analyze import _task_expectations, step_kind
 from .markers import fired as _markers_fired
 from .log import get_console
-from .paths import results_dir, state_root
-from .transcript import parse_transcript
+from .transcript import parse_events
 from .util import median
 
 
@@ -48,8 +48,7 @@ class Step:
 @dataclass
 class CellRun:
     run_index: int
-    jsonl_path: Path
-    meta_path: Path
+    jsonl_path: Path  # the cell bundle file this run lives in (for display)
     steps: list[Step]
     final: str | None
     elapsed_sec: float | None
@@ -68,13 +67,11 @@ def _trunc(s: str, n: int = 100) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
-def _parse_run(jsonl_path: Path, task_id: str, run_index: int) -> CellRun:
-    meta_path = jsonl_path.with_suffix(".meta.json")
+def _parse_run(record, task_id: str, cell_path: Path) -> CellRun:
     expected = _task_expectations().get(task_id)
 
-    tx = parse_transcript(jsonl_path)
+    tx = parse_events(record.events)
     final = tx.final
-    broken = tx.broken
     ordered_steps: list[Step] = []
     for i, s in enumerate(tx.steps, 1):
         snippet_lines = [ln for ln in s.result.splitlines() if ln.strip()]
@@ -90,18 +87,8 @@ def _parse_run(jsonl_path: Path, task_id: str, run_index: int) -> CellRun:
             )
         )
 
-    meta: dict = {}
-    if meta_path.exists():
-        try:
-            meta = json.loads(meta_path.read_text())
-        except json.JSONDecodeError:
-            meta = {}
-
-    if not meta:
-        # Still running (or post-mortem death between jsonl write and meta).
-        status = "broken-trace" if broken else "in-flight"
-    else:
-        status = str(meta.get("status") or "ok")
+    meta = record.meta or {}
+    status = str(meta.get("status") or "ok") if meta else "in-flight"
 
     matched = (
         expected in (final or "").lower() if (expected and final is not None) else None
@@ -109,9 +96,8 @@ def _parse_run(jsonl_path: Path, task_id: str, run_index: int) -> CellRun:
     errored = sum(1 for s in ordered_steps if s.is_error)
 
     return CellRun(
-        run_index=run_index,
-        jsonl_path=jsonl_path,
-        meta_path=meta_path,
+        run_index=record.run,
+        jsonl_path=cell_path,
         steps=ordered_steps,
         final=final,
         elapsed_sec=float(meta["elapsed_sec"]) if "elapsed_sec" in meta else None,
@@ -127,16 +113,9 @@ def _parse_run(jsonl_path: Path, task_id: str, run_index: int) -> CellRun:
 
 
 def _runs_for(ref: str, variant: str, task: str, ns: str | None) -> list[CellRun]:
-    rdir = results_dir(ref, ns)
-    paths = sorted(rdir.glob(f"{variant}__{task}__run*.jsonl"))
-    runs: list[CellRun] = []
-    for p in paths:
-        # Extract the run index from the filename suffix `runN.jsonl`.
-        try:
-            idx = int(p.stem.rsplit("run", 1)[-1])
-        except ValueError:
-            idx = len(runs) + 1
-        runs.append(_parse_run(p, task, idx))
+    cell_path = store.results_path(ref, ns) if ns else None
+    recs = [r for r in store.list_runs(ref, ns) if r.tier == variant and r.task == task] if ns else []
+    return [_parse_run(r, task, cell_path) for r in sorted(recs, key=lambda r: r.run)]
     return runs
 
 
@@ -327,29 +306,14 @@ def _diff_table(refs: list[str], by_ref: dict[str, list[CellRun]], markers: list
 def _discover_namespaces(
     refs: list[str], variant: str, task: str
 ) -> dict[str, int]:
-    """Scan ``results/<ref>/<harness>/<model_id>/`` for files matching this cell.
-
-    Returns ``{"<harness>/<model_id>": file_count}`` for every namespace that
-    has at least one matching ``.jsonl`` across the given refs.
-    """
-    root = state_root() / "results"
-    if not root.exists():
-        return {}
+    """For each namespace, the number of runs matching this (variant, task) cell
+    across the given refs. Returns ``{"<harness>/<model_id>": run_count}``."""
     found: dict[str, int] = {}
     for ref in refs:
-        ref_dir = root / ref
-        if not ref_dir.is_dir():
-            continue
-        for harness_dir in ref_dir.iterdir():
-            if not harness_dir.is_dir():
-                continue
-            for model_dir in harness_dir.iterdir():
-                if not model_dir.is_dir():
-                    continue
-                n = sum(1 for _ in model_dir.glob(f"{variant}__{task}__run*.jsonl"))
-                if n:
-                    ns = f"{harness_dir.name}/{model_dir.name}"
-                    found[ns] = found.get(ns, 0) + n
+        for binding, ns in store.iter_cells([ref]):
+            n = sum(1 for r in store.list_runs(binding, ns) if r.tier == variant and r.task == task)
+            if n:
+                found[ns] = found.get(ns, 0) + n
     return found
 
 

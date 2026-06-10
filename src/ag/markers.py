@@ -30,6 +30,7 @@ SCOPES = ("commands", "wrote", "reads", "final", "any")
 class Marker:
     name: str
     pattern: str
+    description: str            # one sentence explaining what this marker detects
     scope: str = "commands"
 
 

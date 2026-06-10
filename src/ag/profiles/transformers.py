@@ -26,13 +26,18 @@ MARKERS = [
     # path-prefixed binary) — with a subcommand or a flag like `--format` — as
     # opposed to writing Python. The leading anchor avoids matching `transformers`
     # inside `pip install transformers` or `import transformers`.
-    Marker("cli", r"(?:^|[|&;]|/)\s*transformers\s+\S", "commands"),
-    # Wrote/ran `pipeline(...)` — the high-level Python path.
-    Marker("pipeline", r"\bpipeline\s*\(", "any"),
-    # Consulted `transformers ... --help`.
-    Marker("ran-help", r"transformers\b[^\n]*--help", "commands"),
-    # Read an in-repo `cli/agentic/*.py` exemplar (clone tier).
-    Marker("agentic-exemplar", r"/cli/agentic/\w+\.py", "reads"),
+    Marker("cli", r"(?:^|[|&;]|/)\s*transformers\s+\S",
+           "Ran the `transformers` command-line tool instead of writing Python.",
+           "commands"),
+    Marker("pipeline", r"\bpipeline\s*\(",
+           "Used the high-level `pipeline(...)` Python API.",
+           "any"),
+    Marker("ran-help", r"transformers\b[^\n]*--help",
+           "Consulted the CLI's built-in help (`transformers ... --help`).",
+           "commands"),
+    Marker("agentic-exemplar", r"/cli/agentic/\w+\.py",
+           "Read an in-repo `cli/agentic/*.py` example to learn the agentic interface (clone tier).",
+           "reads"),
 ]
 
 
@@ -60,7 +65,7 @@ class TransformersProfile(Profile):
         from ..setup_commit import record_ref, resolve_sha, setup
 
         sha = resolve_sha(ref)
-        record_ref(ref, sha, name)  # label the binding: branch/tag/commit + optional title
+        record_ref(ref, sha, name, profile="transformers")  # label the binding: branch/tag/commit + optional title
         info = setup(ref)
         short = info["short"]
         tiers = ["bare", "clone"] + (["skill"] if info["skill_available"] else [])

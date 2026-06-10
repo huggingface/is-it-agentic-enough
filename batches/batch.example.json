@@ -1,0 +1,89 @@
+{
+  "profile": "transformers",
+  "jobs": [
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.8.0",
+      "ref": "v5.8.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a28ed8259bbdade52d4779b"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.9.0",
+      "ref": "v5.9.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a28ed88c4f53f9fc5aa3be8"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.10.2",
+      "ref": "v5.10.2",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a28ed8e59bbdade52d4779d"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ w/ CLI + Skill",
+      "ref": "4d15b215f3",
+      "name": "w/ CLI + Skill",
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a28ed8fc4f53f9fc5aa3bea"
+    },
+    {
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.8.0",
+      "ref": "v5.8.0",
+      "name": null,
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a28ed9559bbdade52d477a1"
+    },
+    {
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.9.0",
+      "ref": "v5.9.0",
+      "name": null,
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a28ed9ac4f53f9fc5aa3bee"
+    },
+    {
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.10.2",
+      "ref": "v5.10.2",
+      "name": null,
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a28eda0c4f53f9fc5aa3bf0"
+    },
+    {
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ w/ CLI + Skill",
+      "ref": "4d15b215f3",
+      "name": "w/ CLI + Skill",
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a28eda1c4f53f9fc5aa3bf2"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.8.0",
+      "ref": "v5.8.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a28eda759bbdade52d477a3"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.9.0",
+      "ref": "v5.9.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a28edad59bbdade52d477a5"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.10.2",
+      "ref": "v5.10.2",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a28edb3c4f53f9fc5aa3bf4"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ w/ CLI + Skill",
+      "ref": "4d15b215f3",
+      "name": "w/ CLI + Skill",
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a28edb3c4f53f9fc5aa3bf6"
+    }
+  ]
+}

@@ -26,24 +26,35 @@ def _run_suite(binding):
 
 
 def test_mock_suite_writes_expected_layout(data_root):
-    _run_suite("dev1")
-    base = data_root / "results" / "dev1" / "mock" / "default"
-    jsonls = sorted(p.name for p in base.glob("*.jsonl"))
-    # 2 tasks × 3 tiers × 2 runs = 12 cells
-    assert len(jsonls) == 12
-    assert "bare__classify-sentiment__run1.jsonl" in jsonls
+    from ag import store
 
-    meta = json.loads((base / "skill__tokenize-count__run2.meta.json").read_text())
-    assert meta["variant"] == "skill"            # tier recorded
-    assert meta["runner"] == "mock"
-    assert meta["status"] in ("ok", "error")
-    assert isinstance(meta["tool_call_count"], int)
+    _run_suite("dev1")
+    # All 12 runs (2 tasks × 3 tiers × 2 runs) live in ONE cell file, not 24
+    # little ones — that's the point of the bundled format.
+    cell_files = list((data_root / "results" / "dev1" / "mock").glob("*.jsonl"))
+    assert [p.name for p in cell_files] == ["default.jsonl"]
+
+    runs = store.list_runs("dev1", "mock/default")
+    assert len(runs) == 12
+    assert ("bare", "classify-sentiment", 1) in {r.key for r in runs}
+
+    rec = store.get_run("dev1", "mock/default", "skill", "tokenize-count", 2)
+    assert rec.meta["variant"] == "skill"        # tier recorded
+    assert rec.meta["runner"] == "mock"
+    assert rec.meta["status"] in ("ok", "error")
+    assert isinstance(rec.meta["tool_call_count"], int)
+    assert rec.events  # transcript embedded in the line
 
 
 def test_mock_suite_populates_traces(data_root):
+    from ag import store
+
     _run_suite("dev1")
-    traces = list((data_root / "traces" / "dev1" / "mock" / "default").glob("*.jsonl"))
-    assert len(traces) == 12  # one native session per run
+    # one bundled traces file per cell, one line (native session) per run
+    cell_files = list((data_root / "traces" / "dev1" / "mock").glob("*.jsonl"))
+    assert [p.name for p in cell_files] == ["default.jsonl"]
+    traces = store.list_traces("dev1", "mock/default")
+    assert len(traces) == 12 and all(t.get("raw") for t in traces)
 
 
 def test_mock_suite_cleans_up_workspaces(data_root):

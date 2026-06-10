@@ -22,8 +22,9 @@ def _cmd_setup(args: argparse.Namespace) -> int:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
+    from . import store
     from .log import log
-    from .paths import results_dir, results_label
+    from .paths import results_label
     from .profile import get_profile
     from .run_task import run
 
@@ -34,11 +35,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     ns = results_label(args.runner, args.model)
     done = 0
     for binding in bindings:
-        rdir = results_dir(binding, ns)
         for tier in tiers:
             done += 1
-            out = rdir / f"{tier}__{args.task}__run{args.run_index}.jsonl"
-            if out.exists() and not args.force_rerun:
+            if store.run_exists(binding, ns, tier, args.task, args.run_index) and not args.force_rerun:
                 log(f"[{done}/{total}] skip (exists) {binding} {tier} {args.task} run{args.run_index}")
                 continue
             log(f"[{done}/{total}] → {binding} {tier} {args.task} run{args.run_index}")
@@ -127,13 +126,13 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     the partial results are still comparable — earlier tasks have equal samples
     across refs.
     """
+    from . import store
     from .compare import compare
     from .dashboard import Dashboard, stderr_is_tty
     from .log import get_console, log
-    from .paths import results_dir, results_label
+    from .paths import results_label
     from .profile import get_profile
     from .run_task import load_tasks, run
-    from .util import read_meta
 
     profile = get_profile(args.profile)
     label = results_label(args.runner, args.model)
@@ -189,19 +188,16 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 
     with dash.live():
         for i, (ref, tier, tid, run_idx) in enumerate(plan, 1):
-            rdir = results_dir(ref, label)
-            out_path = rdir / f"{tier}__{tid}__run{run_idx}.jsonl"
-            meta_path = rdir / f"{tier}__{tid}__run{run_idx}.meta.json"
-            if out_path.exists() and not args.force_rerun:
-                log(f"[{i}/{total}] skip (exists) {ref} {tier} {tid} run{run_idx}")
-                dash.mark_skipped_existing(
-                    ref, tier, tid, run_idx, read_meta(meta_path),
-                )
-                continue
+            if not args.force_rerun:
+                existing = store.get_run(ref, label, tier, tid, run_idx)
+                if existing is not None:
+                    log(f"[{i}/{total}] skip (exists) {ref} {tier} {tid} run{run_idx}")
+                    dash.mark_skipped_existing(ref, tier, tid, run_idx, existing.meta)
+                    continue
             log(f"[{i}/{total}] → {ref} {tier} {tid} run{run_idx}")
             dash.mark_running(ref, tier, tid, run_idx)
             try:
-                run(
+                record = run(
                     profile,
                     ref,
                     tier,
@@ -215,11 +211,10 @@ def _cmd_diff(args: argparse.Namespace) -> int:
                 log(f"  ! failed: {e}")
                 dash.mark_failed(ref, tier, tid, run_idx, str(e))
                 continue
-            meta = read_meta(meta_path)
-            if meta is None:
+            if record is None or not record.meta:
                 dash.mark_failed(ref, tier, tid, run_idx, "no meta")
             else:
-                dash.mark_done(ref, tier, tid, run_idx, meta)
+                dash.mark_done(ref, tier, tid, run_idx, record.meta)
 
     print(compare(refs, ns=label))
     return 0
@@ -267,7 +262,8 @@ def _cmd_sync(args: argparse.Namespace) -> int:
 def _cmd_batch(args: argparse.Namespace) -> int:
     from .batch import run_batch
 
-    return run_batch(args.file, submit=args.submit, watch=args.watch, status=args.status, poll=args.poll)
+    return run_batch(args.file, submit=args.submit, watch=args.watch, status=args.status,
+                     poll=args.poll, force=args.force_rerun)
 
 
 def _cmd_tasks(args: argparse.Namespace) -> int:  # noqa: ARG001
@@ -527,6 +523,7 @@ def build_parser() -> argparse.ArgumentParser:
     bp.add_argument("--watch", action="store_true", help="Poll the jobs until done and report failures (with --submit, or alongside --status).")
     bp.add_argument("--status", action="store_true", help="Don't launch; report the current state of the batch's already-submitted jobs (from batches/<name>.json).")
     bp.add_argument("--poll", type=int, default=30, help="Watch poll interval in seconds (default 30).")
+    _add_force_rerun_flag(bp)
     bp.set_defaults(func=_cmd_batch)
 
     tp = sub.add_parser("tasks", help="List the available task ids.")
