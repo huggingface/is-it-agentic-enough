@@ -44,6 +44,10 @@ TRANSFORMERS_GIT = "https://github.com/huggingface/transformers"
 # comments inside the steps (a comment would swallow the rest of the line).
 _BOOTSTRAP_STEPS = [
     "set -euo pipefail",
+    "status=0",
+    # If the container is told to stop (timeout / eviction / OOM-adjacent),
+    # exit 143 is otherwise silent — leave a breadcrumb in the job log first.
+    'trap \'echo "::job:: SIGTERM received — timeout, eviction, or out-of-resources. Last status=${status}." >&2; df -h /work /bucket 2>/dev/null | tail -3 >&2; exit 143\' TERM',
     # toolchain: git/node/npm only if the image lacks them, then uv + the pi CLI
     "command -v npm >/dev/null || (apt-get update -qq && apt-get install -y -qq git curl nodejs npm)",
     "curl -LsSf https://astral.sh/uv/install.sh | sh",
@@ -59,7 +63,6 @@ _BOOTSTRAP_STEPS = [
     # resumability: seed local state from the bucket so completed cells are skipped
     "mkdir -p /work/state/results /work/state/traces /bucket/results /bucket/traces",
     "cp -a /bucket/results/. /work/state/results/ 2>/dev/null || true",
-    "status=0",
     "__AG_CMD__ || status=$?",
     # land everything back in the mounted bucket (merge by commit dir), even if
     # the suite was interrupted — completed runs are still worth keeping

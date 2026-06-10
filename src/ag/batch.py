@@ -142,19 +142,43 @@ def _is_terminal(stage: str) -> bool:
     return stage.upper() in _TERMINAL or "error" in stage.lower()
 
 
+def _log_tail(api, jid: str, n: int = 30) -> list[str]:
+    """Best-effort last ``n`` log lines of a job (so a failure shows *why* inline
+    instead of making you run `hf jobs logs`)."""
+    try:
+        lines = [ln.rstrip() for ln in api.fetch_job_logs(job_id=jid, tail=n)]
+    except Exception as e:  # noqa: BLE001
+        return [f"(could not fetch logs: {e})"]
+    return lines[-n:]
+
+
+def _report_terminal(api, label: str, jid: str, stage: str) -> bool:
+    """Print a job's terminal status; on non-COMPLETED, also dump its log tail.
+    Returns True if it completed cleanly."""
+    ok = stage.upper() == "COMPLETED"
+    log(f"  {'✓' if ok else '✗'} {label}  [{stage}]")
+    if not ok:
+        log(f"    ↳ last log lines ({jid}):")
+        for ln in _log_tail(api, jid):
+            log(f"      {ln}")
+    return ok
+
+
 def _track(entries: list[tuple[str, str]], *, watch: bool, poll: int) -> list[tuple[str, str, str]]:
     """``entries`` = ``[(label, job_id)]``. Snapshot (``watch=False``) prints each
-    job's current stage and returns ``[]`` (running ≠ failed). ``watch=True`` polls
-    until every job is terminal and returns ``[(label, job_id, stage)]`` for the
-    ones that did not COMPLETE."""
+    job's current stage (dumping a log tail for terminal failures) and returns
+    ``[]``. ``watch=True`` polls until every job is terminal and returns
+    ``[(label, job_id, stage)]`` for the ones that did not COMPLETE."""
     from huggingface_hub import HfApi
 
     api = HfApi()
     if not watch:
         for label, jid in entries:
             stage = _job_stage(api, jid)
-            mark = "✓" if stage.upper() == "COMPLETED" else ("✗" if _is_terminal(stage) else "…")
-            log(f"  {mark} {label}  [{stage}]")
+            if _is_terminal(stage):
+                _report_terminal(api, label, jid, stage)
+            else:
+                log(f"  … {label}  [{stage}]")
         return []
 
     pending = {jid: label for label, jid in entries}
@@ -166,9 +190,7 @@ def _track(entries: list[tuple[str, str]], *, watch: bool, poll: int) -> list[tu
             stage = _job_stage(api, jid)
             if _is_terminal(stage):
                 label = pending.pop(jid)
-                ok = stage.upper() == "COMPLETED"
-                log(f"  {'✓' if ok else '✗'} {label}  [{stage}]")
-                if not ok:
+                if not _report_terminal(api, label, jid, stage):
                     bad.append((label, jid, stage))
     return bad
 
@@ -196,16 +218,141 @@ def _status(path, *, watch: bool, poll: int) -> int:
     return 0
 
 
+def _runs_for(cfg: dict, tid: str, all_tasks: dict) -> int:
+    """Sample count for a task under this batch: explicit ``runs:`` overrides the
+    per-task default, else 3 (mirrors run_suite)."""
+    if cfg.get("runs") is not None:
+        return int(cfg["runs"])
+    return int((all_tasks.get(tid) or {}).get("runs") or 3)
+
+
+def _expected_run_keys(cfg: dict, tiers, all_tasks: dict) -> set:
+    """The ``(tier, task, run)`` triples a suite would produce for these tiers."""
+    tasks = cfg.get("tasks") or list(all_tasks.keys())
+    return {(tier, t, r)
+            for tier in tiers for t in tasks
+            for r in range(1, _runs_for(cfg, t, all_tasks) + 1)}
+
+
+def _is_complete(present_keys: set, exp_tiers: set, cfg: dict, all_tasks: dict) -> bool:
+    """A cell is complete when the bucket already holds every expected run.
+
+    ``exp_tiers`` is the requested tiers (or, when the YAML doesn't pin ``tiers``,
+    the tiers already recorded for that revision). Empty inputs → not complete, so
+    a brand-new / never-run cell is always launched."""
+    if not present_keys or not exp_tiers:
+        return False
+    expected = _expected_run_keys(cfg, exp_tiers, all_tasks)
+    return bool(expected) and expected <= present_keys
+
+
+def _complete_cells(cfg: dict, cells: list[Cell], bucket: str) -> dict[str, str]:
+    """Map ``cell.label() -> summary`` for cells already fully present in the
+    bucket. Reads each candidate cell's bundle (one file per model per revision)
+    to collect its ``(tier, task, run)`` keys; degrades to ``{}`` (launch all) on
+    any error so --skip-complete never silently drops a needed run."""
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from .paths import results_label
+    from .profile import get_profile
+    from .run_task import load_tasks
+
+    try:
+        from huggingface_hub import HfApi
+    except Exception:  # noqa: BLE001
+        return {}
+
+    profile = get_profile(cfg["profile"])
+    all_tasks = load_tasks()
+
+    # resolve each cell to (binding, ns) and its bucket cell-file path
+    bind: dict[str, str | None] = {}
+
+    def binding_of(ref: str):
+        if ref not in bind:
+            try:
+                bind[ref] = profile.expand_bindings([ref])[0]
+            except Exception:  # noqa: BLE001
+                bind[ref] = None
+        return bind[ref]
+
+    targets: dict[str, tuple[str, str, str]] = {}  # label -> (binding, ns, remote_path)
+    for c in cells:
+        b = binding_of(c.ref)
+        if b:
+            ns = results_label(c.runner, c.model)
+            targets[c.label()] = (b, ns, f"results/{b}/{ns}.jsonl")
+    if not targets:
+        return {}
+
+    api = HfApi()
+    try:
+        existing = {it.path: it for it in api.list_bucket_tree(bucket, prefix="results", recursive=True)
+                    if getattr(it, "type", None) == "file"}
+    except Exception as e:  # noqa: BLE001
+        log(f"  (skip-complete: could not read bucket {bucket}: {e}; launching everything)")
+        return {}
+
+    # (label, binding, remote_path, BucketFile) for cells whose bundle exists
+    to_dl = [(label, binding, path, existing[path])
+             for label, (binding, _ns, path) in targets.items() if path in existing]
+    if not to_dl:
+        return {}
+
+    present: dict[str, set] = {}
+    avail: dict[str, set] = {}  # binding -> tiers seen in the bucket
+    with tempfile.TemporaryDirectory() as td:
+        pairs = [(bf, Path(td) / f"{i}.jsonl") for i, (_, _, _, bf) in enumerate(to_dl)]
+        try:
+            api.download_bucket_files(bucket, pairs)
+        except Exception as e:  # noqa: BLE001
+            log(f"  (skip-complete: bucket download failed: {e}; launching everything)")
+            return {}
+        for (label, b, _path, _bf), (_, local) in zip(to_dl, pairs):
+            keys: set = set()
+            try:
+                for line in Path(local).read_text().splitlines():
+                    line = line.strip()
+                    if line:
+                        o = json.loads(line)
+                        keys.add((o.get("tier"), o.get("task"), int(o.get("run") or 0)))
+            except Exception:  # noqa: BLE001
+                keys = set()
+            present[label] = keys
+            avail.setdefault(b, set()).update(tier for (tier, _, _) in keys)
+
+    complete: dict[str, str] = {}
+    for label, (b, _ns, _path) in targets.items():
+        exp_tiers = set(cfg["tiers"]) if cfg.get("tiers") else avail.get(b, set())
+        if _is_complete(present.get(label, set()), exp_tiers, cfg, all_tasks):
+            complete[label] = f"{len(_expected_run_keys(cfg, exp_tiers, all_tasks))} runs present"
+    return complete
+
+
 def run_batch(path, *, submit: bool = False, watch: bool = False, status: bool = False,
-              poll: int = 30, force: bool = False) -> int:
+              poll: int = 30, force: bool = False, skip_complete: bool = False) -> int:
     if status:
         return _status(path, watch=watch, poll=poll)
 
     cfg = load_batch(path)
     cells = expand(cfg)
     log(plan_lines(cfg, cells))
-    if force or cfg.get("force_rerun"):
+    forcing = force or cfg.get("force_rerun")
+    if forcing:
         log("force-rerun: existing results for these cells will be recomputed, not skipped.")
+
+    complete: dict[str, str] = {}
+    if skip_complete and not forcing:
+        complete = _complete_cells(cfg, cells, cfg.get("bucket", DEFAULT_BUCKET))
+        if complete:
+            log(f"skip-complete: {len(complete)}/{len(cells)} cell(s) already in the bucket — not launching:")
+            for lbl, msg in complete.items():
+                log(f"  ✓ {lbl}  ({msg})")
+        else:
+            log("skip-complete: no fully-cached cells found; launching all.")
+
     if not submit:
         log("DRY RUN — re-run with --submit to launch (pi cells → HF Jobs, claude cells → local).")
         return 0
@@ -217,6 +364,8 @@ def run_batch(path, *, submit: bool = False, watch: bool = False, status: bool =
     submitted: list[tuple[Cell, str]] = []  # (cell, job_id)
     failures: list[str] = []
     for c in cells:
+        if c.label() in complete:
+            continue
         args = _cell_args(cfg, c, force)
         try:
             if c.runner == "pi":

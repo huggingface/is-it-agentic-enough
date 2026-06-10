@@ -86,6 +86,29 @@ def test_force_flag_overrides_cfg(tmp_path):
     assert batch._cell_args(cfg, cell, force=True).force_rerun is True  # --force-rerun wins
 
 
+def test_skip_complete_predicate():
+    all_tasks = {"a": {}, "b": {"runs": 2}}          # a → default 3 runs, b → 2
+    cfg = {"tasks": ["a", "b"], "tiers": ["bare", "clone"]}
+    expected = batch._expected_run_keys(cfg, {"bare", "clone"}, all_tasks)
+    assert len(expected) == 2 * (3 + 2)               # 2 tiers × (3 + 2) runs
+
+    assert batch._is_complete(expected, {"bare", "clone"}, cfg, all_tasks) is True
+    assert batch._is_complete(expected | {("bare", "a", 99)}, {"bare", "clone"}, cfg, all_tasks) is True
+    # missing one run → not complete
+    short = expected - {("clone", "b", 2)}
+    assert batch._is_complete(short, {"bare", "clone"}, cfg, all_tasks) is False
+    # empty present / empty tiers → never complete (never-run cell is launched)
+    assert batch._is_complete(set(), {"bare"}, cfg, all_tasks) is False
+    assert batch._is_complete(expected, set(), cfg, all_tasks) is False
+
+
+def test_runs_for_explicit_overrides_per_task():
+    all_tasks = {"a": {"runs": 7}}
+    assert batch._runs_for({"runs": 2}, "a", all_tasks) == 2      # --runs / cfg runs wins
+    assert batch._runs_for({}, "a", all_tasks) == 7              # else per-task
+    assert batch._runs_for({}, "z", all_tasks) == 3              # else default 3
+
+
 def test_status_without_state_file_errors(tmp_path, data_root):
     p = tmp_path / "m.yaml"
     p.write_text("ignored")  # status mode doesn't parse the YAML, only its stem

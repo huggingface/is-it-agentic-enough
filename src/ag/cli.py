@@ -263,7 +263,7 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     from .batch import run_batch
 
     return run_batch(args.file, submit=args.submit, watch=args.watch, status=args.status,
-                     poll=args.poll, force=args.force_rerun)
+                     poll=args.poll, force=args.force_rerun, skip_complete=args.skip_complete)
 
 
 def _cmd_tasks(args: argparse.Namespace) -> int:  # noqa: ARG001
@@ -523,6 +523,9 @@ def build_parser() -> argparse.ArgumentParser:
     bp.add_argument("--watch", action="store_true", help="Poll the jobs until done and report failures (with --submit, or alongside --status).")
     bp.add_argument("--status", action="store_true", help="Don't launch; report the current state of the batch's already-submitted jobs (from batches/<name>.json).")
     bp.add_argument("--poll", type=int, default=30, help="Watch poll interval in seconds (default 30).")
+    bp.add_argument("--skip-complete", action="store_true",
+                    help="Before launching, check the bucket and skip cells whose runs are already fully present "
+                         "(per-cell resume still happens inside each launched job regardless).")
     _add_force_rerun_flag(bp)
     bp.set_defaults(func=_cmd_batch)
 

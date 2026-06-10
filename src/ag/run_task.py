@@ -220,4 +220,14 @@ def _run_body(
         f"■ {short} {variant} {task_id} run{run_idx}  {elapsed:.1f}s  "
         f"exit={proc.returncode}{status_tag}  {tok_summary}  → {cell_path.name}"
     )
+    # Surface *why* a run failed inline (otherwise it's buried in meta.json).
+    if status != "ok":
+        rc = proc.returncode
+        if rc is not None and rc < 0:
+            log(f"  ↳ killed by signal {-rc} (often OOM / timeout / job eviction)")
+        tail = [ln for ln in (stderr_output or "").splitlines() if ln.strip()]
+        for ln in tail[-6:]:
+            log(f"  ↳ stderr: {ln[:300]}")
+        if not tail:
+            log("  ↳ (no stderr captured)")
     return record
