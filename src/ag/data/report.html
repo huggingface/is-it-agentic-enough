@@ -59,7 +59,26 @@
   #theme-toggle { flex:none; cursor:pointer; border:1px solid var(--line); background:var(--panel);
     color:var(--fg); border-radius:999px; padding:7px 12px; font-size:13px; line-height:1;
     display:inline-flex; align-items:center; gap:6px; box-shadow:var(--shadow); }
-  #theme-toggle:hover { border-color:var(--accent); }
+  #theme-toggle, #cfg-toggle { flex:none; cursor:pointer; border:1px solid var(--line); background:var(--panel);
+    color:var(--fg); border-radius:999px; padding:7px 12px; font-size:13px; line-height:1;
+    display:inline-flex; align-items:center; gap:6px; box-shadow:var(--shadow); }
+  #theme-toggle:hover, #cfg-toggle:hover { border-color:var(--accent); }
+  .hdr-btns { display:flex; gap:8px; align-items:center; flex:none; }
+  /* configuration sidebar (opened by the gear) */
+  #backdrop { position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:40; }
+  #sidebar { position:fixed; top:0; left:0; height:100vh; width:340px; max-width:88vw; z-index:50;
+    background:var(--panel); border-right:1px solid var(--line); overflow-y:auto;
+    box-shadow:0 0 24px rgba(0,0,0,.18); display:flex; flex-direction:column; }
+  /* explicit author rules beat the UA [hidden] rule, so re-assert it */
+  #sidebar[hidden], #backdrop[hidden] { display:none; }
+  .side-head { display:flex; justify-content:space-between; align-items:center; padding:14px 16px;
+    border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel); }
+  .side-head b { font-size:15px; }
+  .side-close { cursor:pointer; border:0; background:none; color:var(--dim); font-size:18px; line-height:1; }
+  .side-close:hover { color:var(--fg); }
+  .side-body { padding:16px; display:flex; flex-direction:column; gap:18px; }
+  .side-grp > label { display:block; color:var(--dim); font-size:12px; margin-bottom:6px; font-weight:600; }
+  .side-grp .chips { max-width:none; }
   .btn { cursor:pointer; border:1px solid var(--line); background:var(--panel); color:var(--fg);
          border-radius:8px; padding:6px 12px; font-size:13px; }
   .btn:hover { border-color:var(--accent); }
@@ -80,7 +99,10 @@
   .dim { color:var(--dim); }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); }
   #rev-list { display:flex; flex-wrap:wrap; gap:10px; }
-  .rev { padding:10px 14px; min-width:140px; }
+  .rev { padding:10px 14px; min-width:140px; cursor:pointer; user-select:none; }
+  .rev:hover { border-color:var(--accent); }
+  .rev.on { border-color:var(--accent); }
+  .rev.off { opacity:0.45; }
   .rev .nm { font-weight:600; }
   /* Tasks accordion: one task expanded, the rest folded to one-line headers. */
   #task-list { display:flex; flex-direction:column; gap:8px; }
@@ -152,11 +174,29 @@
     <h1 id="title">run report</h1>
     <div id="meta" class="dim"></div>
   </div>
-  <button id="theme-toggle" title="Toggle light / dark" aria-label="Toggle light / dark theme"></button>
+  <div class="hdr-btns">
+    <button id="cfg-toggle" title="Configuration" aria-label="Configuration">⚙ Configure</button>
+    <button id="theme-toggle" title="Toggle light / dark" aria-label="Toggle light / dark theme"></button>
+  </div>
 </header>
 
+<aside id="sidebar" hidden>
+  <div class="side-head"><b>⚙ Configuration</b><button id="cfg-close" class="side-close" aria-label="Close">✕</button></div>
+  <div class="side-body">
+    <div class="side-grp"><label>Models</label><div id="f-ns" class="chips"></div></div>
+    <div class="side-grp"><label>Tiers — how much help the agent gets</label><div id="f-tiers" class="chips"></div></div>
+    <div class="side-grp"><label>Tasks</label><div id="f-tasks" class="chips"></div></div>
+    <div class="side-grp"><label>Fair comparison — shared tasks only</label>
+      <label class="chk"><input type="checkbox" id="f-shared-models"> across models</label>
+      <label class="chk" style="margin-left:14px"><input type="checkbox" id="f-shared-revs"> across revisions</label>
+      <div id="scope-note" class="dim" style="font-size:12px;margin-top:8px"></div>
+    </div>
+  </div>
+</aside>
+<div id="backdrop" hidden></div>
+
 <section>
-  <h2>Revisions</h2>
+  <h2>Revisions <span class="dim">— click a commit to include / exclude it everywhere · oldest → newest</span></h2>
   <div id="rev-list"></div>
 </section>
 
@@ -174,18 +214,7 @@
       <div><label>Series (one line per)</label><select id="f-series"></select></div>
       <div><label>Chart</label><select id="f-chart">
         <option value="line">lines</option><option value="bar">bars</option></select></div>
-      <div><label>Fair comparison — shared tasks only</label>
-        <div style="display:flex;gap:14px;padding-top:4px">
-          <label class="chk"><input type="checkbox" id="f-shared-models"> across models</label>
-          <label class="chk"><input type="checkbox" id="f-shared-revs"> across revisions</label>
-        </div></div>
     </div>
-    <div id="filters" style="margin-top:6px">
-      <div><label>Models (harness / model)</label><div id="f-ns" class="chips"></div></div>
-      <div><label>Tiers</label><div id="f-tiers" class="chips"></div></div>
-      <div><label>Tasks</label><div id="f-tasks" class="chips"></div></div>
-    </div>
-    <div id="scope-note" class="dim" style="font-size:12px;margin-top:8px"></div>
     <div id="ov-legend" class="chartlegend" style="margin-top:12px"></div>
     <div id="ov-grid" class="grid" style="margin-top:8px">
       <div id="ov-match" class="plot"></div>
@@ -228,14 +257,13 @@
 
 <div id="tab-coverage" class="pane" hidden>
   <section>
-    <h2>Coverage <span class="dim">— how many runs exist for each task × revision</span></h2>
-    <div class="dim" style="font-size:12px;margin:4px 0">Models <span class="dim">(toggle to include / exclude from the counts)</span></div>
-    <div id="cov-models" class="chips"></div>
+    <h2>Coverage <span class="dim">— how many runs exist for each task × revision (⚙ to pick models)</span></h2>
     <div id="cov-heatmap" style="margin-top:10px"></div>
   </section>
 </div>
 
 <div id="tab-results" class="pane" hidden>
+
   <section>
     <h2>Tasks <span class="dim">— click a task to expand it: what it asks, how a match is scored, and what each model answered</span></h2>
     <div id="task-list"></div>
@@ -331,8 +359,12 @@ MARKER_NAMES.forEach(m => METRICS.push({
 METRICS.push({ key:'match', label:'match %',
   fn: rs => { const seen = rs.filter(r => r.matched !== null);
               return pct(seen.filter(r => r.matched).length, seen.length); } });
+// A run "errored" only if it ended badly (bad status / nonzero exit) — NOT if an
+// intermediate tool call failed and the agent recovered (those are tracked
+// separately as per-run "tool errors"; a warning on stderr is not a failure).
+const runErrored = r => r.exit !== 0 || (r.status && r.status !== 'ok');
 METRICS.push({ key:'err', label:'runs with error %',
-  fn: rs => pct(rs.filter(r => r.retry || r.exit !== 0 || (r.status && r.status !== 'ok')).length, rs.length) });
+  fn: rs => pct(rs.filter(runErrored).length, rs.length) });
 METRICS.push({ key:'time', label:'median time (s)',
   fn: rs => { const v = median(rs.map(r => r.elapsed)); return v === null ? null : Math.round(v * 10) / 10; } });
 METRICS.push({ key:'newtok', label:'median new tokens',
@@ -369,24 +401,38 @@ const DIMS = {
 };
 
 const state = {
-  nss: new Set(NSS), tiers: new Set(TIERS), tasks: new Set(TASKS),
+  nss: new Set(NSS), tiers: new Set(TIERS), tasks: new Set(TASKS), revs: new Set(REVS.map(c => c.sha)),
   metric: (CHOICE[0] || METRICS[0]).key, xdim: 'revision', series: 'tier',
   chart: 'line', group: 'model', distSplit: 'revision', distModel: '', distScale: 'log',
   sharedModels: false, sharedRevisions: false,
 };
 
-// header + revisions
+// header
 document.getElementById('title').textContent = `🤗 ${DATA.profile || 'ag'} — run report`;
 document.getElementById('meta').innerHTML =
   `${RUNS.length} runs · ${REVS.length} revisions · ${NSS.length} namespaces · ` +
   `generated ${esc(DATA.generated_at || '')}` + (DATA.bucket ? ` · bucket <code>${esc(DATA.bucket)}</code>` : '');
 
-document.getElementById('rev-list').innerHTML = REVS.map(c => {
-  const badge = c.kind === 'tag' ? '<span class="badge tag">release</span>' : '';
-  const n = RUNS.filter(r => r.sha === c.sha).length;
-  return `<div class="rev panel"><div class="nm">${esc(dispName(c))}${badge}</div>
-          <div class="dim" style="font-size:12px;margin-top:3px">${n} runs</div></div>`;
-}).join('') || '<div class="dim">no revisions</div>';
+// the Revisions strip (top, oldest → newest by commit date) doubles as a global
+// toggle: click a card to include/exclude that commit from every pane.
+function renderRevList() {
+  const host = document.getElementById('rev-list');
+  host.innerHTML = REVS.map(c => {
+    const on = state.revs.has(c.sha);
+    const badge = c.kind === 'tag' ? '<span class="badge tag">release</span>' : '';
+    const n = RUNS.filter(r => r.sha === c.sha).length;
+    return `<div class="rev panel ${on ? 'on' : 'off'}" data-sha="${esc(c.sha)}" title="click to toggle">
+      <div class="nm">${esc(dispName(c))}${badge}</div>
+      <div class="dim" style="font-size:12px;margin-top:3px">${n} runs</div></div>`;
+  }).join('') || '<div class="dim">no revisions</div>';
+  host.querySelectorAll('.rev').forEach(el => el.addEventListener('click', () => {
+    const sha = el.dataset.sha;
+    state.revs.has(sha) ? state.revs.delete(sha) : state.revs.add(sha);
+    el.classList.toggle('on'); el.classList.toggle('off');
+    applyConfig();
+  }));
+}
+renderRevList();
 
 // tasks: show exactly what each run asks for + how a match is scored
 const TASK_META = Object.fromEntries((DATA.tasks || []).map(t => [t.id, t]));
@@ -412,10 +458,12 @@ function mediaHTML(t) {
   }).filter(Boolean).join('');
   return items ? `<div class="task-media">${items}</div>` : '';
 }
+// runs included in the Tasks/Results panes (honors the global config)
+const cfgScope = r => state.nss.has(r.ns) && state.tiers.has(r.tier) && state.revs.has(r.sha);
 // one-line summary for a folded task header: how many models match
 function taskSummary(id) {
-  const rs = RUNS.filter(r => r.task === id);
-  const models = NSS.filter(ns => rs.some(r => r.ns === ns));
+  const rs = RUNS.filter(r => r.task === id && cfgScope(r));
+  const models = NSS.filter(ns => state.nss.has(ns) && rs.some(r => r.ns === ns));
   let scored = 0, matched = 0;
   models.forEach(ns => {
     const seen = rs.filter(r => r.ns === ns && r.matched !== null);
@@ -464,9 +512,9 @@ function answerDetail(mr) {
 // per-task: one row per model — matched / failed / no-answer at a glance,
 // click to see the failing (and matched) responses
 function answersHTML(id) {
-  const rs = RUNS.filter(r => r.task === id);
+  const rs = RUNS.filter(r => r.task === id && cfgScope(r));
   if (!rs.length) return '';
-  const rows = NSS.filter(ns => rs.some(r => r.ns === ns)).map(ns => {
+  const rows = NSS.filter(ns => state.nss.has(ns) && rs.some(r => r.ns === ns)).map(ns => {
     const mr = rs.filter(r => r.ns === ns);
     const ok = mr.filter(r => r.matched === true).length;
     const fail = mr.filter(r => r.matched === false).length;
@@ -493,7 +541,9 @@ function answersHTML(id) {
 let openTask = TASKS[0] || null;
 function renderTasks() {
   const host = document.getElementById('task-list');
-  host.innerHTML = TASKS.map(id => {
+  const ids = TASKS.filter(id => state.tasks.has(id));
+  if (!ids.includes(openTask)) openTask = ids[0] || null;
+  host.innerHTML = ids.map(id => {
     const t = TASK_META[id] || { id };
     const open = id === openTask;
     const cat = t.category ? `<span class="badge">${esc(t.category)}</span>` : '';
@@ -523,7 +573,6 @@ function renderTasks() {
     if (d) d.style.display = d.style.display === 'none' ? '' : 'none';
   }));
 }
-renderTasks();
 
 // filters
 const mSel = document.getElementById('f-metric');
@@ -560,10 +609,10 @@ gSel.addEventListener('change', () => { state.group = gSel.value; renderTable();
 
 const smChk = document.getElementById('f-shared-models');
 smChk.checked = state.sharedModels;
-smChk.addEventListener('change', () => { state.sharedModels = smChk.checked; renderAll(); });
+smChk.addEventListener('change', () => { state.sharedModels = smChk.checked; applyConfig(); });
 const srChk = document.getElementById('f-shared-revs');
 srChk.checked = state.sharedRevisions;
-srChk.addEventListener('change', () => { state.sharedRevisions = srChk.checked; renderAll(); });
+srChk.addEventListener('change', () => { state.sharedRevisions = srChk.checked; applyConfig(); });
 
 const dSel = document.getElementById('f-dist');
 dSel.value = state.distSplit;
@@ -580,12 +629,12 @@ dscSel.value = state.distScale;
 dscSel.addEventListener('change', () => { state.distScale = dscSel.value; renderDistributions(); });
 
 // multi-select chip groups (toggle freely; empty = nothing in scope)
-function chipGroup(elId, keys, set, onchange) {
+function chipGroup(elId, keys, set, onchange, labelFn) {
   const el = document.getElementById(elId);
   keys.forEach(k => {
     const chip = document.createElement('span');
     chip.className = set.has(k) ? 'chip on' : 'chip';
-    chip.textContent = k;
+    chip.textContent = labelFn ? labelFn(k) : k;
     chip.addEventListener('click', () => {
       if (set.has(k)) { set.delete(k); chip.classList.remove('on'); }
       else { set.add(k); chip.classList.add('on'); }
@@ -594,15 +643,13 @@ function chipGroup(elId, keys, set, onchange) {
     el.appendChild(chip);
   });
 }
-chipGroup('f-ns', NSS, state.nss, renderAll);
-chipGroup('f-tiers', TIERS, state.tiers, renderAll);
-chipGroup('f-tasks', TASKS, state.tasks, renderAll);
+// One global configuration (the sidebar) drives every pane.
+function applyConfig() { renderAll(); renderCoverage(); }
+chipGroup('f-ns', NSS, state.nss, applyConfig, shortModel);
+chipGroup('f-tiers', TIERS, state.tiers, applyConfig);
+chipGroup('f-tasks', TASKS, state.tasks, applyConfig);
 
-// coverage heatmap (its own Coverage tab) — independent model toggles, counts
-// the runs present per task × revision. Rendered when its tab is first shown.
-let covOpen = false;
-const covModels = new Set(NSS);
-chipGroup('cov-models', NSS, covModels, renderCoverage);
+let covOpen = false;  // Coverage heatmap renders when its tab is first shown
 
 // Effective task set for the aggregate views. The two "shared" toggles restrict
 // to tasks with even coverage so metrics aren't biased (e.g. a model that only
@@ -622,7 +669,7 @@ function computeScopeTasks() {
     }
   }
   if (state.sharedRevisions) {
-    const scoped = RUNS.filter(r => state.nss.has(r.ns) && tierOk(r));
+    const scoped = RUNS.filter(r => state.nss.has(r.ns) && tierOk(r) && state.revs.has(r.sha));
     for (const sha of new Set(scoped.map(r => r.sha))) {
       const ran = new Set(scoped.filter(r => r.sha === sha).map(r => r.task));
       common = new Set([...common].filter(t => ran.has(t)));
@@ -644,7 +691,8 @@ function refreshScope() {
     note.textContent = '';
   }
 }
-const inScope = r => state.nss.has(r.ns) && state.tiers.has(r.tier) && scopeTasks.has(r.task);
+const inScope = r => state.nss.has(r.ns) && state.tiers.has(r.tier)
+  && state.revs.has(r.sha) && scopeTasks.has(r.task);
 
 // a pivot — metric over the chosen X dimension, one line/bar per series value.
 // Used both by the headline overview charts and the configurable marker chart.
@@ -751,9 +799,12 @@ const keyOf = (c, dim) => dim === 'model' ? c.ns : c.task;
 function statCells(rs) {
   const seen = rs.filter(r => r.matched !== null);
   const matched = seen.length ? `${seen.filter(r => r.matched).length}/${seen.length}` : '—';
-  const errs = rs.filter(r => r.retry || r.exit !== 0 || (r.status && r.status !== 'ok')).length;
+  const errs = rs.filter(runErrored).length;                 // runs that failed
+  const retried = rs.filter(r => !runErrored(r) && r.retry).length;  // recovered tool hiccups
+  const flags = (errs ? ` · <span class="bad">!${errs} err</span>` : '')
+    + (retried ? ` · <span class="warn" title="tool call(s) failed but the run recovered">↻${retried}</span>` : '');
   return `<td class="num">${rs.length}</td>
-    <td>✓ ${matched}${errs ? ` · <span class="bad">!${errs} err</span>` : ''}</td>
+    <td>✓ ${matched}${flags}</td>
     <td>${markerSummary(rs) || '<span class="dim">—</span>'}</td>
     <td class="num">${Math.round(median(rs.map(r => r.elapsed)) || 0)}s</td>`;
 }
@@ -762,11 +813,13 @@ function dataRow(c) {
   return `<td>${esc(ns)}</td><td>${esc(dispName(revBySha[sha]))}</td><td>${esc(tier)}</td><td>${esc(task)}</td>${statCells(rs)}`;
 }
 function renderTable() {
-  // the Results tab is the full run explorer — shows every run, independent of
-  // the Overview filter chips; organize via Group by + fold/drill.
+  // the Results tab honors the global configuration (sidebar + Revisions strip);
+  // organize the included runs via Group by + fold/drill.
   const cells = [];
-  for (const ns of NSS)
-  for (const sha of revOrder) for (const tier of TIERS) for (const task of TASKS) {
+  for (const ns of NSS.filter(n => state.nss.has(n)))
+  for (const sha of revOrder.filter(s => state.revs.has(s)))
+  for (const tier of TIERS) for (const task of TASKS) {
+    if (!state.tiers.has(tier) || !state.tasks.has(task)) continue;
     const rs = cellRuns(ns, sha, tier, task);
     if (rs.length) cells.push({ ns, sha, tier, task, rs });
   }
@@ -848,7 +901,7 @@ function renderTable() {
 // the dropdown (ignoring the model chips), else the chip-selected models.
 // Tier/task chips always apply.
 function distRuns() {
-  const base = RUNS.filter(r => state.tiers.has(r.tier) && state.tasks.has(r.task));
+  const base = RUNS.filter(r => state.tiers.has(r.tier) && state.tasks.has(r.task) && state.revs.has(r.sha));
   return state.distModel ? base.filter(r => r.ns === state.distModel)
                          : base.filter(r => state.nss.has(r.ns));
 }
@@ -869,17 +922,17 @@ function boxFig(divId, title, valueFn) {
         type: 'box', name: shortModel(ns),
         x: cr.map(r => dispName(revBySha[r.sha])), y: cr.map(valueFn),
         text: cr.map(tip), hoverinfo: 'y+text',
-        boxpoints: 'all', jitter: 0.5, pointpos: 0,
+        boxpoints: 'all', jitter: 0.3, pointpos: 0,
         marker: { color: col, size: 4, opacity: 0.7 }, line: { color: col }, fillcolor: col + '22',
       };
     });
   } else {
-    traces = REVS.map(c => {
+    traces = REVS.filter(c => state.revs.has(c.sha)).map(c => {
       const cr = rs.filter(r => r.sha === c.sha), col = revColor(c.sha);
       return {
         type: 'box', name: dispName(c), y: cr.map(valueFn),
         text: cr.map(tip), hoverinfo: 'y+text',
-        boxpoints: 'all', jitter: 0.5, pointpos: 0,
+        boxpoints: 'all', jitter: 0.3, pointpos: 0,
         marker: { color: col, size: 4, opacity: 0.7 }, line: { color: col }, fillcolor: col + '22',
       };
     });
@@ -897,7 +950,7 @@ function boxFig(divId, title, valueFn) {
   if (byModel) {
     layout.boxmode = 'group';
     layout.xaxis.categoryorder = 'array';
-    layout.xaxis.categoryarray = REVS.map(dispName);
+    layout.xaxis.categoryarray = REVS.filter(c => state.revs.has(c.sha)).map(dispName);
   }
   Plotly.react(divId, traces, layout, { displayModeBar: false, responsive: true });
 }
@@ -929,7 +982,8 @@ function renderViz() {
   resizePlots(['ov-match', 'ov-time', 'ov-newtok', 'ov-err', 'chart']);
 }
 // explicit colorscale (so we can match annotation text to actual cell luminance)
-const COV_SCALE = [[0, '#f7fbff'], [0.25, '#c6dbef'], [0.5, '#6baed6'], [0.75, '#3182bd'], [1, '#08519c']];
+// HF-brand amber ramp (matches the accent); pale cream → yellow → orange → brown.
+const COV_SCALE = [[0, '#fff8eb'], [0.25, '#ffe7ad'], [0.5, '#ffce6e'], [0.75, '#ff9d00'], [1, '#b45309']];
 const _hex = h => { h = h.replace('#', ''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); };
 function _covColor(t) {  // interpolate COV_SCALE at t∈[0,1] → [r,g,b]
   t = Math.max(0, Math.min(1, t));
@@ -951,9 +1005,11 @@ function _covText(t) {
 function renderCoverage() {
   if (!covOpen) return;
   const T = themeColors();
-  const x = REVS.map(dispName), shas = REVS.map(c => c.sha), y = TASKS;
+  const sel = REVS.filter(c => state.revs.has(c.sha));
+  const x = sel.map(dispName), shas = sel.map(c => c.sha);
+  const y = TASKS.filter(t => state.tasks.has(t));
   const z = y.map(t => shas.map(sha =>
-    RUNS.filter(r => r.task === t && r.sha === sha && covModels.has(r.ns)).length));
+    RUNS.filter(r => r.task === t && r.sha === sha && state.nss.has(r.ns) && state.tiers.has(r.tier)).length));
   const maxv = Math.max(1, ...z.flat());
   const ann = [];
   z.forEach((row, i) => row.forEach((v, j) => ann.push({
@@ -975,7 +1031,7 @@ function renderCoverage() {
   }], layout, { displayModeBar: false, responsive: true });
   resizePlots(['cov-heatmap']);
 }
-function renderAll() { refreshScope(); renderViz(); renderTable(); renderDistributions(); }
+function renderAll() { refreshScope(); renderViz(); renderTasks(); renderTable(); renderDistributions(); }
 renderAll();
 
 // --- top-level tabs: Overview / Coverage / Results ---
@@ -989,6 +1045,15 @@ function showTab(name) {
   else if (name === 'coverage') { covOpen = true; renderCoverage(); }
 }
 TABS.forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+
+// --- configuration sidebar (gear) ---
+const sidebar = document.getElementById('sidebar');
+const backdrop = document.getElementById('backdrop');
+function setSidebar(open) { sidebar.hidden = !open; backdrop.hidden = !open; }
+document.getElementById('cfg-toggle').addEventListener('click', () => setSidebar(sidebar.hidden));
+document.getElementById('cfg-close').addEventListener('click', () => setSidebar(false));
+backdrop.addEventListener('click', () => setSidebar(false));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') setSidebar(false); });
 
 // --- theme: manual toggle + OS-change follow ---
 // `manualTheme` is set once the user clicks the toggle (or the Space pins
