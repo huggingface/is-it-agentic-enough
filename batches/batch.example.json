@@ -6,28 +6,245 @@
       "ref": "v5.8.0",
       "name": null,
       "model": "MiniMaxAI/MiniMax-M2.7",
-      "job_id": "6a291c6d59bbdade52d47c31"
+      "job_id": "6a2a535c59bbdade52d495b9"
     },
     {
       "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.9.0",
       "ref": "v5.9.0",
       "name": null,
       "model": "MiniMaxAI/MiniMax-M2.7",
-      "job_id": "6a291c72c4f53f9fc5aa3ec9"
+      "job_id": "6a2a536059bbdade52d495bb"
     },
     {
       "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.10.2",
       "ref": "v5.10.2",
       "name": null,
       "model": "MiniMaxAI/MiniMax-M2.7",
-      "job_id": "6a291c7659bbdade52d47c33"
+      "job_id": "6a2a536459bbdade52d495bd"
+    },
+    {
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a2a5368c4f53f9fc5aa4b16"
     },
     {
       "label": "pi:MiniMaxAI/MiniMax-M2.7 @ w/ CLI + Skill",
       "ref": "4d15b215f3",
       "name": "w/ CLI + Skill",
       "model": "MiniMaxAI/MiniMax-M2.7",
-      "job_id": "6a291c76c4f53f9fc5aa3ecb"
+      "job_id": "6a2a5369c4f53f9fc5aa4b18"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.8.0",
+      "ref": "v5.8.0",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2a536dc4f53f9fc5aa4b1a"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.9.0",
+      "ref": "v5.9.0",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2a537159bbdade52d495bf"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.10.2",
+      "ref": "v5.10.2",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2a537659bbdade52d495c1"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2a537ac4f53f9fc5aa4b1c"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ w/ CLI + Skill",
+      "ref": "4d15b215f3",
+      "name": "w/ CLI + Skill",
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2a537ac4f53f9fc5aa4b1e"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.8.0",
+      "ref": "v5.8.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2a537e59bbdade52d495c3"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.9.0",
+      "ref": "v5.9.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2a538259bbdade52d495c5"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.10.2",
+      "ref": "v5.10.2",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2a538759bbdade52d495c7"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2a538bc4f53f9fc5aa4b20"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ w/ CLI + Skill",
+      "ref": "4d15b215f3",
+      "name": "w/ CLI + Skill",
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2a538bc4f53f9fc5aa4b22"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.8.0",
+      "ref": "v5.8.0",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2a539059bbdade52d495c9"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.9.0",
+      "ref": "v5.9.0",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2a539459bbdade52d495cb"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.10.2",
+      "ref": "v5.10.2",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2a539859bbdade52d495cd"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2a539dc4f53f9fc5aa4b24"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ w/ CLI + Skill",
+      "ref": "4d15b215f3",
+      "name": "w/ CLI + Skill",
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2a539dc4f53f9fc5aa4b26"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.8.0",
+      "ref": "v5.8.0",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2a53a1c4f53f9fc5aa4b28"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.9.0",
+      "ref": "v5.9.0",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2a53a6c4f53f9fc5aa4b2a"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.10.2",
+      "ref": "v5.10.2",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2a53aac4f53f9fc5aa4b2c"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2a53aec4f53f9fc5aa4b2e"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ w/ CLI + Skill",
+      "ref": "4d15b215f3",
+      "name": "w/ CLI + Skill",
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2a53ae59bbdade52d495d7"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.8.0",
+      "ref": "v5.8.0",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2a53b359bbdade52d495d9"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.9.0",
+      "ref": "v5.9.0",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2a53b759bbdade52d495db"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.10.2",
+      "ref": "v5.10.2",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2a53bb59bbdade52d495dd"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2a53bf59bbdade52d495df"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ w/ CLI + Skill",
+      "ref": "4d15b215f3",
+      "name": "w/ CLI + Skill",
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2a53c0c4f53f9fc5aa4b30"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.8.0",
+      "ref": "v5.8.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2a53c4c4f53f9fc5aa4b32"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.9.0",
+      "ref": "v5.9.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2a53c959bbdade52d495e1"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.10.2",
+      "ref": "v5.10.2",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2a53cdc4f53f9fc5aa4b34"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2a53d159bbdade52d495e3"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ w/ CLI + Skill",
+      "ref": "4d15b215f3",
+      "name": "w/ CLI + Skill",
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2a53d1c4f53f9fc5aa4b36"
     }
   ]
 }

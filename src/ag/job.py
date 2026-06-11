@@ -47,7 +47,7 @@ _BOOTSTRAP_STEPS = [
     "status=0",
     # If the container is told to stop (timeout / eviction / OOM-adjacent),
     # exit 143 is otherwise silent — leave a breadcrumb in the job log first.
-    'trap \'echo "::job:: SIGTERM received — timeout, eviction, or out-of-resources. Last status=${status}." >&2; df -h /work /bucket 2>/dev/null | tail -3 >&2; exit 143\' TERM',
+    'trap \'echo "::job:: SIGTERM received — timeout, eviction, or out-of-resources. Last status=${status}." >&2; df -h /work /bucket 2>/dev/null | tail -3 >&2; cp -a /work/state/results/. /bucket/results/ 2>/dev/null || true; cp -a /work/state/traces/. /bucket/traces/ 2>/dev/null || true; exit 143\' TERM',
     # toolchain: git/node/npm only if the image lacks them, then uv + the pi CLI
     "command -v npm >/dev/null || (apt-get update -qq && apt-get install -y -qq git curl nodejs npm)",
     "curl -LsSf https://astral.sh/uv/install.sh | sh",
@@ -60,12 +60,15 @@ _BOOTSTRAP_STEPS = [
     "uv pip install --python .env/bin/python -e .",
     "export AG_TRANSFORMERS_SRC=/work/transformers",
     "export AG_DATA_DIR=/work/state",
+    # Persist each run to the mounted bucket the moment it finishes (the store
+    # mirrors its cell file to AG_MIRROR_DIR after every upsert). So a crash or
+    # eviction mid-suite keeps every completed run instead of losing the job.
+    "export AG_MIRROR_DIR=/bucket",
     # resumability: seed local state from the bucket so completed cells are skipped
     "mkdir -p /work/state/results /work/state/traces /bucket/results /bucket/traces",
     "cp -a /bucket/results/. /work/state/results/ 2>/dev/null || true",
     "__AG_CMD__ || status=$?",
-    # land everything back in the mounted bucket (merge by commit dir), even if
-    # the suite was interrupted — completed runs are still worth keeping
+    # safety net: a final merge back in case any per-run mirror write was skipped
     "cp -a /work/state/results/. /bucket/results/ 2>/dev/null || true",
     "cp -a /work/state/traces/. /bucket/traces/ 2>/dev/null || true",
     'exit "$status"',

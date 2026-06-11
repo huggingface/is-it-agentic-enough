@@ -18,11 +18,18 @@ the machine unless ``--push`` is passed explicitly.
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import json
+import mimetypes
+import re
 import subprocess
 import urllib.request
 from pathlib import Path
+
+# Don't inline an input bigger than this as a data URI (keeps the report lean).
+# Generous enough for a short audio clip (a few MB) but guards against huge files.
+MEDIA_MAX_BYTES = 8_000_000
 
 from . import store
 from .analyze import parse as parse_run, step_kind
@@ -232,16 +239,37 @@ def collect_records(refs: list[str] | None = None, *, markers: list | None = Non
                         "name": name, "ref": ref, "kind": kind})
     commits.sort(key=lambda c: (c["date"], c["sha"]))
 
+    def _media_refs(prompt: str) -> list[str]:
+        """Input files a prompt points at (e.g. ``./inputs/cat.jpg``)."""
+        return sorted(set(re.findall(r"(?:\./)?inputs/([\w.\-]+)", prompt or "")))
+
+    all_tasks = load_tasks()
     tasks_meta = [
         {"id": tid, "category": t.get("category"), "expected": t.get("expected"),
-         "match": t.get("match") or "substring", "prompt": (t.get("prompt") or "").strip()}
-        for tid, t in load_tasks().items()
+         "match": t.get("match") or "substring", "prompt": (t.get("prompt") or "").strip(),
+         "media": _media_refs(t.get("prompt") or "")}
+        for tid, t in all_tasks.items()
     ]
+    # inline each referenced input once as a data URI so the static report can
+    # show the actual image / play the actual audio with no external fetch
+    inputs: dict[str, dict] = {}
+    for fname in sorted({m for t in tasks_meta for m in t["media"]}):
+        try:
+            data = package_data_path("inputs", fname).read_bytes()
+        except Exception:  # noqa: BLE001
+            continue
+        if len(data) > MEDIA_MAX_BYTES:
+            continue
+        mime = mimetypes.guess_type(fname)[0] or "application/octet-stream"
+        kind = "image" if mime.startswith("image/") else "audio" if mime.startswith("audio/") else "file"
+        inputs[fname] = {"kind": kind, "mime": mime,
+                         "uri": f"data:{mime};base64,{base64.b64encode(data).decode()}"}
     return {
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "profile": profile_name,
         "bucket": bucket,
         "tasks": tasks_meta,
+        "inputs": inputs,
         "revisions": commits,
         "namespaces": sorted(namespaces),
         "model_params": _model_params(namespaces),

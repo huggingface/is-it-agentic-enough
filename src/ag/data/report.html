@@ -60,6 +60,19 @@
     color:var(--fg); border-radius:999px; padding:7px 12px; font-size:13px; line-height:1;
     display:inline-flex; align-items:center; gap:6px; box-shadow:var(--shadow); }
   #theme-toggle:hover { border-color:var(--accent); }
+  .btn { cursor:pointer; border:1px solid var(--line); background:var(--panel); color:var(--fg);
+         border-radius:8px; padding:6px 12px; font-size:13px; }
+  .btn:hover { border-color:var(--accent); }
+  .chk { display:inline-flex; align-items:center; gap:5px; cursor:pointer; color:var(--fg); font-size:13px; }
+  .chk input { accent-color:var(--accent); }
+  /* top-level tabs */
+  #tabs { display:flex; gap:2px; max-width:1400px; margin:22px auto 0; padding:0 24px;
+          border-bottom:1px solid var(--line); }
+  .tab { background:none; border:0; border-bottom:2px solid transparent; color:var(--dim);
+         cursor:pointer; font-weight:600; font-size:14px; padding:10px 16px; margin-bottom:-1px; }
+  .tab:hover { color:var(--fg); }
+  .tab.active { color:var(--fg); border-bottom-color:var(--accent); }
+  .pane > section:first-of-type h2 { margin-top:20px; }
   /* HF brand underline accent under the title */
   h1::after { content:""; display:block; height:3px; margin-top:6px; border-radius:3px;
               background:linear-gradient(90deg,var(--brand1),var(--brand2)); }
@@ -69,13 +82,33 @@
   #rev-list { display:flex; flex-wrap:wrap; gap:10px; }
   .rev { padding:10px 14px; min-width:140px; }
   .rev .nm { font-weight:600; }
-  .task { padding:12px 16px; margin-bottom:10px; }
-  .task-h { margin-bottom:8px; }
+  /* Tasks accordion: one task expanded, the rest folded to one-line headers. */
+  #task-list { display:flex; flex-direction:column; gap:8px; }
+  .task { padding:0; overflow:hidden; }
+  .task-head { display:flex; align-items:center; gap:8px; cursor:pointer; padding:11px 14px; }
+  .task-head:hover { background:var(--hover); }
+  .task-head .caret { color:var(--dim); width:1em; flex:none; }
+  .task-head b { font-size:14px; }
+  .task-sum { margin-left:auto; font-size:12px; white-space:nowrap; }
+  .task-body { padding:2px 14px 14px; }
   .task-prompt { white-space:pre-wrap; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
     font-size:12.5px; line-height:1.5; background:var(--code-bg); color:var(--fg);
-    border-radius:8px; padding:10px 12px; margin:0 0 8px; overflow-x:auto; }
+    border-radius:8px; padding:10px 12px; margin:0 0 8px; overflow:auto; max-height:200px; }
   .task-match { font-size:13px; }
   .task-match .pill { color:var(--accent-fg); border-color:var(--accent); background:var(--chip-on); font-weight:600; }
+  .task-media { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:0 0 10px; }
+  .task-media img { max-height:72px; max-width:130px; border-radius:6px; border:1px solid var(--line); object-fit:cover; }
+  .task-media audio { height:34px; max-width:260px; }
+  .answers { width:100%; border-collapse:collapse; font-size:13px; margin-top:6px; max-width:760px; }
+  .answers td { padding:5px 8px; border-top:1px solid var(--line); vertical-align:top; }
+  .ans-row { cursor:pointer; } .ans-row:hover { background:var(--hover); }
+  .answers .m { white-space:nowrap; }
+  .answers .v { white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .answers .a { color:var(--dim); white-space:nowrap; }
+  .ans-ok { color:var(--good); } .ans-bad { color:var(--bad); } .ans-mid { color:var(--warn); }
+  .task .final { white-space:pre-wrap; }
+  .ad-h { font-size:12px; font-weight:600; margin:8px 0 4px; }
+  .ad-n { color:var(--dim); font-variant-numeric:tabular-nums; margin-right:6px; }
   .badge { font-size:11px; padding:1px 8px; border-radius:999px; border:1px solid var(--line); margin-left:6px; font-weight:600; }
   .badge.tag { color:var(--good); border-color:var(--good); }
   #filters { display:flex; flex-wrap:wrap; gap:18px; align-items:flex-start; margin-top:10px; }
@@ -127,74 +160,99 @@
   <div id="rev-list"></div>
 </section>
 
-<section>
-  <h2>Tasks <span class="dim">— exactly what each run is asked to do, and how a run counts as a match</span></h2>
-  <div id="task-list"></div>
-</section>
+<nav id="tabs">
+  <button class="tab active" data-tab="overview">Overview</button>
+  <button class="tab" data-tab="coverage">Coverage</button>
+  <button class="tab" data-tab="results">Results</button>
+</nav>
 
-<section>
-  <h2>Overview</h2>
-  <div id="filters">
-    <div><label>X axis</label><select id="f-x"></select></div>
-    <div><label>Series (one line per)</label><select id="f-series"></select></div>
-    <div><label>Chart</label><select id="f-chart">
-      <option value="line">lines</option><option value="bar">bars</option></select></div>
-  </div>
-  <div id="filters" style="margin-top:6px">
-    <div><label>Models (harness / model)</label><div id="f-ns" class="chips"></div></div>
-    <div><label>Tiers</label><div id="f-tiers" class="chips"></div></div>
-    <div><label>Tasks</label><div id="f-tasks" class="chips"></div></div>
-  </div>
-  <div id="ov-legend" class="chartlegend" style="margin-top:12px"></div>
-  <div id="ov-grid" class="grid" style="margin-top:8px">
-    <div id="ov-match" class="plot"></div>
-    <div id="ov-time" class="plot"></div>
-    <div id="ov-newtok" class="plot"></div>
-    <div id="ov-err" class="plot"></div>
-  </div>
-</section>
+<div id="tab-overview" class="pane">
+  <section>
+    <h2>Overview</h2>
+    <div id="filters">
+      <div><label>X axis</label><select id="f-x"></select></div>
+      <div><label>Series (one line per)</label><select id="f-series"></select></div>
+      <div><label>Chart</label><select id="f-chart">
+        <option value="line">lines</option><option value="bar">bars</option></select></div>
+      <div><label>Fair comparison — shared tasks only</label>
+        <div style="display:flex;gap:14px;padding-top:4px">
+          <label class="chk"><input type="checkbox" id="f-shared-models"> across models</label>
+          <label class="chk"><input type="checkbox" id="f-shared-revs"> across revisions</label>
+        </div></div>
+    </div>
+    <div id="filters" style="margin-top:6px">
+      <div><label>Models (harness / model)</label><div id="f-ns" class="chips"></div></div>
+      <div><label>Tiers</label><div id="f-tiers" class="chips"></div></div>
+      <div><label>Tasks</label><div id="f-tasks" class="chips"></div></div>
+    </div>
+    <div id="scope-note" class="dim" style="font-size:12px;margin-top:8px"></div>
+    <div id="ov-legend" class="chartlegend" style="margin-top:12px"></div>
+    <div id="ov-grid" class="grid" style="margin-top:8px">
+      <div id="ov-match" class="plot"></div>
+      <div id="ov-time" class="plot"></div>
+      <div id="ov-newtok" class="plot"></div>
+      <div id="ov-err" class="plot"></div>
+    </div>
+  </section>
 
-<section id="markers-section">
-  <h2>Label adoption</h2>
-  <div id="filters">
-    <div><label>Marker</label><select id="f-metric"></select></div>
-  </div>
-  <div id="marker-desc" class="dim" style="font-size:13px;margin-top:8px"></div>
-  <div id="chart" class="plot" style="margin-top:10px"></div>
-</section>
+  <section id="markers-section">
+    <h2>Label adoption</h2>
+    <div id="filters">
+      <div><label>Marker</label><select id="f-metric"></select></div>
+    </div>
+    <div id="marker-desc" class="dim" style="font-size:13px;margin-top:8px"></div>
+    <div id="chart" class="plot" style="margin-top:10px"></div>
+  </section>
 
-<section>
-  <h2>Distributions <span class="dim">every point is a run (hover for model/tier/task/run)</span></h2>
-  <div id="filters" style="margin-bottom:6px">
-    <div><label>Model</label><select id="f-dist-model"></select></div>
-    <div><label>Boxes by</label><select id="f-dist">
-      <option value="revision">revision</option>
-      <option value="model">model (per revision)</option></select></div>
-    <div><label>Scale</label><select id="f-dist-scale">
-      <option value="log">logarithmic</option>
-      <option value="linear">linear</option></select></div>
-  </div>
-  <div id="dist-hint" class="dim" style="font-size:12px;margin-bottom:8px"></div>
-  <div id="dist-legend" class="chartlegend" style="margin-bottom:8px"></div>
-  <div class="grid">
-    <div id="dist-time" class="plot"></div>
-    <div id="dist-new" class="plot"></div>
-    <div id="dist-rep" class="plot"></div>
-    <div id="dist-out" class="plot"></div>
-  </div>
-</section>
+  <section>
+    <h2>Distributions <span class="dim">every point is a run (hover for model/tier/task/run)</span></h2>
+    <div id="filters" style="margin-bottom:6px">
+      <div><label>Model</label><select id="f-dist-model"></select></div>
+      <div><label>Boxes by</label><select id="f-dist">
+        <option value="revision">revision</option>
+        <option value="model">model (per revision)</option></select></div>
+      <div><label>Scale</label><select id="f-dist-scale">
+        <option value="log">logarithmic</option>
+        <option value="linear">linear</option></select></div>
+    </div>
+    <div id="dist-hint" class="dim" style="font-size:12px;margin-bottom:8px"></div>
+    <div id="dist-legend" class="chartlegend" style="margin-bottom:8px"></div>
+    <div class="grid">
+      <div id="dist-time" class="plot"></div>
+      <div id="dist-new" class="plot"></div>
+      <div id="dist-rep" class="plot"></div>
+      <div id="dist-out" class="plot"></div>
+    </div>
+  </section>
+</div>
 
-<section>
-  <h2>Results <span id="results-hint" class="dim"></span></h2>
-  <div id="filters" style="margin-bottom:10px">
-    <div><label>Group by</label><select id="f-group">
-      <option value="model">model</option>
-      <option value="task">task</option>
-      <option value="both">model &amp; task</option>
-    </select></div>
-  </div>
-  <div id="table"></div>
-</section>
+<div id="tab-coverage" class="pane" hidden>
+  <section>
+    <h2>Coverage <span class="dim">— how many runs exist for each task × revision</span></h2>
+    <div class="dim" style="font-size:12px;margin:4px 0">Models <span class="dim">(toggle to include / exclude from the counts)</span></div>
+    <div id="cov-models" class="chips"></div>
+    <div id="cov-heatmap" style="margin-top:10px"></div>
+  </section>
+</div>
+
+<div id="tab-results" class="pane" hidden>
+  <section>
+    <h2>Tasks <span class="dim">— click a task to expand it: what it asks, how a match is scored, and what each model answered</span></h2>
+    <div id="task-list"></div>
+  </section>
+
+  <section>
+    <h2>Run results <span id="results-hint" class="dim"></span></h2>
+    <div id="filters" style="margin-bottom:10px">
+      <div><label>Group by</label><select id="f-group">
+        <option value="model">model</option>
+        <option value="task">task</option>
+        <option value="both">model &amp; task</option>
+      </select></div>
+    </div>
+    <div id="table"></div>
+  </section>
+</div>
 
 <footer id="foot"></footer>
 
@@ -314,6 +372,7 @@ const state = {
   nss: new Set(NSS), tiers: new Set(TIERS), tasks: new Set(TASKS),
   metric: (CHOICE[0] || METRICS[0]).key, xdim: 'revision', series: 'tier',
   chart: 'line', group: 'model', distSplit: 'revision', distModel: '', distScale: 'log',
+  sharedModels: false, sharedRevisions: false,
 };
 
 // header + revisions
@@ -342,19 +401,129 @@ function matchDesc(t) {
   if (m === 'judge')     return `Judged against “${e}”.`;
   return `Match (${esc(m)}): “${e}”.`;
 }
-document.getElementById('task-list').innerHTML = TASKS.map(id => {
-  const t = TASK_META[id] || { id };
-  const cat = t.category ? `<span class="badge">${esc(t.category)}</span>` : '';
-  const scored = !(t.expected === null || t.expected === undefined || t.expected === '');
-  const tag = scored ? `<span class="pill">expected: ${esc(String(t.expected))}</span>`
-                     : `<span class="pill">open-ended</span>`;
-  const prompt = (t.prompt || '').trim();
-  return `<div class="task panel">
-    <div class="task-h"><b>${esc(id)}</b> ${cat}</div>
-    ${prompt ? `<pre class="task-prompt">${esc(prompt)}</pre>` : ''}
-    <div class="task-match">${tag} <span class="dim">${matchDesc(t)}</span></div>
-  </div>`;
-}).join('') || '<div class="dim">no tasks in this report</div>';
+const INPUTS = DATA.inputs || {};
+function mediaHTML(t) {
+  const items = (t.media || []).map(fn => {
+    const m = INPUTS[fn];
+    if (!m) return '';
+    if (m.kind === 'image') return `<img src="${m.uri}" alt="${esc(fn)}" title="${esc(fn)}">`;
+    if (m.kind === 'audio') return `<audio controls preload="none" src="${m.uri}" title="${esc(fn)}"></audio>`;
+    return '';
+  }).filter(Boolean).join('');
+  return items ? `<div class="task-media">${items}</div>` : '';
+}
+// one-line summary for a folded task header: how many models match
+function taskSummary(id) {
+  const rs = RUNS.filter(r => r.task === id);
+  const models = NSS.filter(ns => rs.some(r => r.ns === ns));
+  let scored = 0, matched = 0;
+  models.forEach(ns => {
+    const seen = rs.filter(r => r.ns === ns && r.matched !== null);
+    if (seen.length) { scored++; if (seen.every(r => r.matched)) matched++; }
+  });
+  const tag = scored
+    ? `<span class="ans-${matched === scored ? 'ok' : matched === 0 ? 'bad' : 'mid'}">✓ ${matched}/${scored} models match</span>`
+    : `<span class="dim">open-ended</span>`;
+  return `${tag} <span class="dim">· ${models.length} model(s)</span>`;
+}
+// group runs by their (truncated) final answer, most frequent first
+function groupFinals(runs, cap) {
+  const g = new Map();
+  runs.forEach(r => { const f = (r.final || '').trim() || '(no answer text)'; g.set(f, (g.get(f) || 0) + 1); });
+  const entries = [...g.entries()].sort((a, b) => b[1] - a[1]);
+  const shown = entries.slice(0, cap).map(([f, n]) =>
+    `<div class="final"><span class="ad-n">${n}×</span>${esc(f)}</div>`).join('');
+  const extra = entries.length > cap ? `<div class="dim" style="font-size:12px">+ ${entries.length - cap} more distinct answer(s)</div>` : '';
+  return shown + extra;
+}
+// the expandable breakdown for one model: failures first (what went wrong),
+// no-answer/errored runs, then a matched example
+function answerDetail(mr) {
+  const fail = mr.filter(r => r.matched === false);
+  const none = mr.filter(r => r.matched === null);   // scored task but no comparable answer (errored/empty)
+  const ok = mr.filter(r => r.matched === true);
+  const out = [];
+  if (fail.length) {
+    out.push(`<div class="ad-h bad">✗ didn't match (${fail.length}) — what they answered instead</div>`);
+    out.push(groupFinals(fail, 8));
+  }
+  if (none.length) {
+    const byStatus = {};
+    none.forEach(r => { const s = r.status || '?'; byStatus[s] = (byStatus[s] || 0) + 1; });
+    const summary = Object.entries(byStatus).map(([s, n]) => `${n}× ${esc(s)}`).join(', ');
+    out.push(`<div class="ad-h warn">⚠ no scored answer (${none.length}): ${summary}</div>`);
+    const withText = none.filter(r => (r.final || '').trim());
+    if (withText.length) out.push(groupFinals(withText, 4));
+  }
+  if (ok.length) {
+    out.push(`<div class="ad-h ok">✓ matched (${ok.length}) — example</div>`);
+    out.push(`<div class="final">${esc(((ok.find(r => r.final) || {}).final || '(no text)'))}</div>`);
+  }
+  return out.join('') || '<div class="dim">no runs</div>';
+}
+// per-task: one row per model — matched / failed / no-answer at a glance,
+// click to see the failing (and matched) responses
+function answersHTML(id) {
+  const rs = RUNS.filter(r => r.task === id);
+  if (!rs.length) return '';
+  const rows = NSS.filter(ns => rs.some(r => r.ns === ns)).map(ns => {
+    const mr = rs.filter(r => r.ns === ns);
+    const ok = mr.filter(r => r.matched === true).length;
+    const fail = mr.filter(r => r.matched === false).length;
+    const none = mr.filter(r => r.matched === null).length;
+    const scored = ok + fail;
+    let tally;
+    if (scored) {
+      tally = `<span class="ans-ok">✓ ${ok}</span>`
+            + (fail ? ` · <span class="ans-bad">✗ ${fail}</span>` : '')
+            + (none ? ` · <span class="ans-mid">⚠ ${none}</span>` : '');
+    } else {
+      tally = `<span class="dim">${none} run(s), open-ended</span>`;
+    }
+    const key = `ans_${id}_${ns}`.replace(/[^\w]/g, '_');
+    return `<tr class="ans-row" data-k="${key}">
+        <td class="m">${esc(shortModel(ns))}</td>
+        <td class="v">${tally}</td>
+        <td class="a">${fail ? 'show failures ▸' : 'show responses ▸'}</td></tr>
+      <tr id="${key}" class="ans-detail" style="display:none"><td colspan="3">${answerDetail(mr)}</td></tr>`;
+  }).join('');
+  return `<div class="dim" style="font-size:11px;margin-top:12px">model answers <span class="dim">— click a model to see failing &amp; matched responses</span></div>
+          <table class="answers">${rows}</table>`;
+}
+let openTask = TASKS[0] || null;
+function renderTasks() {
+  const host = document.getElementById('task-list');
+  host.innerHTML = TASKS.map(id => {
+    const t = TASK_META[id] || { id };
+    const open = id === openTask;
+    const cat = t.category ? `<span class="badge">${esc(t.category)}</span>` : '';
+    const scored = !(t.expected === null || t.expected === undefined || t.expected === '');
+    const tag = scored ? `<span class="pill">expected: ${esc(String(t.expected))}</span>`
+                       : `<span class="pill">open-ended</span>`;
+    const prompt = (t.prompt || '').trim();
+    const body = `<div class="task-body"${open ? '' : ' hidden'}>
+      ${mediaHTML(t)}
+      ${prompt ? `<pre class="task-prompt">${esc(prompt)}</pre>` : ''}
+      <div class="task-match">${tag} <span class="dim">${matchDesc(t)}</span></div>
+      ${answersHTML(id)}
+    </div>`;
+    return `<div class="task panel">
+      <div class="task-head" data-id="${esc(id)}">
+        <span class="caret">${open ? '▾' : '▸'}</span><b>${esc(id)}</b> ${cat}
+        <span class="task-sum">${taskSummary(id)}</span>
+      </div>${body}</div>`;
+  }).join('') || '<div class="dim">no tasks in this report</div>';
+
+  host.querySelectorAll('.task-head').forEach(h => h.addEventListener('click', () => {
+    openTask = (openTask === h.dataset.id) ? null : h.dataset.id;  // single-open; click again to fold
+    renderTasks();
+  }));
+  host.querySelectorAll('.ans-row').forEach(r => r.addEventListener('click', () => {
+    const d = document.getElementById(r.dataset.k);
+    if (d) d.style.display = d.style.display === 'none' ? '' : 'none';
+  }));
+}
+renderTasks();
 
 // filters
 const mSel = document.getElementById('f-metric');
@@ -389,6 +558,13 @@ const gSel = document.getElementById('f-group');
 gSel.value = state.group;
 gSel.addEventListener('change', () => { state.group = gSel.value; renderTable(); });
 
+const smChk = document.getElementById('f-shared-models');
+smChk.checked = state.sharedModels;
+smChk.addEventListener('change', () => { state.sharedModels = smChk.checked; renderAll(); });
+const srChk = document.getElementById('f-shared-revs');
+srChk.checked = state.sharedRevisions;
+srChk.addEventListener('change', () => { state.sharedRevisions = srChk.checked; renderAll(); });
+
 const dSel = document.getElementById('f-dist');
 dSel.value = state.distSplit;
 dSel.addEventListener('change', () => { state.distSplit = dSel.value; renderDistributions(); });
@@ -422,7 +598,53 @@ chipGroup('f-ns', NSS, state.nss, renderAll);
 chipGroup('f-tiers', TIERS, state.tiers, renderAll);
 chipGroup('f-tasks', TASKS, state.tasks, renderAll);
 
-const inScope = r => state.nss.has(r.ns) && state.tiers.has(r.tier) && state.tasks.has(r.task);
+// coverage heatmap (its own Coverage tab) — independent model toggles, counts
+// the runs present per task × revision. Rendered when its tab is first shown.
+let covOpen = false;
+const covModels = new Set(NSS);
+chipGroup('cov-models', NSS, covModels, renderCoverage);
+
+// Effective task set for the aggregate views. The two "shared" toggles restrict
+// to tasks with even coverage so metrics aren't biased (e.g. a model that only
+// ran the quick tasks, or a revision where only the fast batch finished):
+//   • across models    — keep only tasks EVERY selected model ran
+//   • across revisions  — keep only tasks present on EVERY revision in scope
+// Both on ≈ "shared by all models and revisions". `scopeTasks` is refreshed on
+// any selection / toggle change (refreshScope, called at the top of renderAll).
+let scopeTasks = new Set(state.tasks);
+function computeScopeTasks() {
+  let common = new Set(state.tasks);
+  const tierOk = r => state.tiers.has(r.tier);
+  if (state.sharedModels) {
+    for (const ns of NSS.filter(n => state.nss.has(n))) {
+      const ran = new Set(RUNS.filter(r => r.ns === ns && tierOk(r)).map(r => r.task));
+      common = new Set([...common].filter(t => ran.has(t)));
+    }
+  }
+  if (state.sharedRevisions) {
+    const scoped = RUNS.filter(r => state.nss.has(r.ns) && tierOk(r));
+    for (const sha of new Set(scoped.map(r => r.sha))) {
+      const ran = new Set(scoped.filter(r => r.sha === sha).map(r => r.task));
+      common = new Set([...common].filter(t => ran.has(t)));
+    }
+  }
+  return common;
+}
+function refreshScope() {
+  scopeTasks = computeScopeTasks();
+  const note = document.getElementById('scope-note');
+  const modes = [];
+  if (state.sharedModels) modes.push('all selected models');
+  if (state.sharedRevisions) modes.push('all revisions');
+  if (modes.length) {
+    const dropped = [...state.tasks].filter(t => !scopeTasks.has(t)).length;
+    note.textContent = `Comparing ${scopeTasks.size} task(s) shared by ${modes.join(' and ')}`
+      + (dropped ? ` · ${dropped} task(s) excluded for uneven coverage` : '');
+  } else {
+    note.textContent = '';
+  }
+}
+const inScope = r => state.nss.has(r.ns) && state.tiers.has(r.tier) && scopeTasks.has(r.task);
 
 // a pivot — metric over the chosen X dimension, one line/bar per series value.
 // Used both by the headline overview charts and the configurable marker chart.
@@ -540,11 +762,11 @@ function dataRow(c) {
   return `<td>${esc(ns)}</td><td>${esc(dispName(revBySha[sha]))}</td><td>${esc(tier)}</td><td>${esc(task)}</td>${statCells(rs)}`;
 }
 function renderTable() {
-  const nss = NSS.filter(n => state.nss.has(n));
+  // the Results tab is the full run explorer — shows every run, independent of
+  // the Overview filter chips; organize via Group by + fold/drill.
   const cells = [];
-  for (const ns of nss)
+  for (const ns of NSS)
   for (const sha of revOrder) for (const tier of TIERS) for (const task of TASKS) {
-    if (!state.tiers.has(tier) || !state.tasks.has(task)) continue;
     const rs = cellRuns(ns, sha, tier, task);
     if (rs.length) cells.push({ ns, sha, tier, task, rs });
   }
@@ -591,7 +813,7 @@ function renderTable() {
   }
 
   document.getElementById('results-hint').textContent =
-    `· ${cells.length} cell(s) across ${nss.length} model(s) · click a category to unfold it, a row to drill into its runs`;
+    `· ${cells.length} cell(s) across ${new Set(cells.map(c => c.ns)).size} model(s) · click a category to unfold it, a row to drill into its runs`;
   document.getElementById('table').innerHTML = rows.length ? `<table>
     <thead><tr><th>Model</th><th>Revision</th><th>Tier</th><th>Task</th><th class="num">runs</th>
     <th>✓match · errors</th><th>markers</th><th class="num">med time</th></tr></thead>
@@ -706,8 +928,67 @@ function renderViz() {
   renderOverview(); renderChart();
   resizePlots(['ov-match', 'ov-time', 'ov-newtok', 'ov-err', 'chart']);
 }
-function renderAll() { renderViz(); renderTable(); renderDistributions(); }
+// explicit colorscale (so we can match annotation text to actual cell luminance)
+const COV_SCALE = [[0, '#f7fbff'], [0.25, '#c6dbef'], [0.5, '#6baed6'], [0.75, '#3182bd'], [1, '#08519c']];
+const _hex = h => { h = h.replace('#', ''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); };
+function _covColor(t) {  // interpolate COV_SCALE at t∈[0,1] → [r,g,b]
+  t = Math.max(0, Math.min(1, t));
+  for (let i = 1; i < COV_SCALE.length; i++) {
+    if (t <= COV_SCALE[i][0]) {
+      const [t0, c0] = COV_SCALE[i - 1], [t1, c1] = COV_SCALE[i];
+      const f = (t - t0) / ((t1 - t0) || 1), a = _hex(c0), b = _hex(c1);
+      return [0, 1, 2].map(k => Math.round(a[k] + f * (b[k] - a[k])));
+    }
+  }
+  return _hex(COV_SCALE[COV_SCALE.length - 1][1]);
+}
+// readable text color for a cell: white on dark fills, near-black on light ones
+function _covText(t) {
+  const [r, g, b] = _covColor(t);
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#111111' : '#ffffff';
+}
+// tasks × revisions coverage heatmap (run counts over the toggled models)
+function renderCoverage() {
+  if (!covOpen) return;
+  const T = themeColors();
+  const x = REVS.map(dispName), shas = REVS.map(c => c.sha), y = TASKS;
+  const z = y.map(t => shas.map(sha =>
+    RUNS.filter(r => r.task === t && r.sha === sha && covModels.has(r.ns)).length));
+  const maxv = Math.max(1, ...z.flat());
+  const ann = [];
+  z.forEach((row, i) => row.forEach((v, j) => ann.push({
+    x: x[j], y: y[i], text: String(v), showarrow: false,
+    font: { size: 11, color: _covText(v / maxv) },
+  })));
+  const layout = {
+    height: Math.max(240, y.length * 26 + 130),
+    margin: { l: 180, r: 10, t: 8, b: 96 },
+    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: { color: T.fg },
+    xaxis: { tickangle: -30, automargin: true },
+    yaxis: { automargin: true, autorange: 'reversed' },
+    annotations: ann,
+  };
+  Plotly.react('cov-heatmap', [{
+    type: 'heatmap', z, x, y, colorscale: COV_SCALE, zmin: 0, zmax: maxv,
+    colorbar: { title: 'runs' },
+    hovertemplate: '%{y} · %{x}<br>%{z} runs<extra></extra>',
+  }], layout, { displayModeBar: false, responsive: true });
+  resizePlots(['cov-heatmap']);
+}
+function renderAll() { refreshScope(); renderViz(); renderTable(); renderDistributions(); }
 renderAll();
+
+// --- top-level tabs: Overview / Coverage / Results ---
+const PANES = [...document.querySelectorAll('.pane')];
+const TABS = [...document.querySelectorAll('.tab')];
+function showTab(name) {
+  PANES.forEach(p => { p.hidden = p.id !== 'tab-' + name; });
+  TABS.forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  // (re)draw the now-visible Plotly charts so they size to the real width
+  if (name === 'overview') { renderViz(); renderDistributions(); }
+  else if (name === 'coverage') { covOpen = true; renderCoverage(); }
+}
+TABS.forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 
 // --- theme: manual toggle + OS-change follow ---
 // `manualTheme` is set once the user clicks the toggle (or the Space pins
@@ -718,7 +999,7 @@ function applyTheme(dark) {
   root.remove('dark', 'light');
   root.add(dark ? 'dark' : 'light');
   document.getElementById('theme-toggle').textContent = dark ? '☀ Light' : '☾ Dark';
-  renderViz(); renderDistributions();   // re-render so Plotly picks up theme colors
+  renderViz(); renderDistributions(); renderCoverage();   // re-render so Plotly picks up theme colors
 }
 applyTheme(document.documentElement.classList.contains('dark'));
 document.getElementById('theme-toggle').addEventListener('click', () => {

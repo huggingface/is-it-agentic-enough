@@ -26,11 +26,31 @@ execute sequentially.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
 
 from .paths import state_root
+
+
+def _mirror(tree: str, binding: str, ns: str, src: Path) -> None:
+    """If ``AG_MIRROR_DIR`` is set, copy a just-written cell file there too.
+
+    Used by HF Jobs (``AG_MIRROR_DIR=/bucket``) so each run is persisted to the
+    bucket the moment it finishes — a crash/eviction mid-suite then keeps every
+    completed run instead of losing the whole job. Best-effort: a mirror failure
+    never breaks the run."""
+    mdir = os.environ.get("AG_MIRROR_DIR")
+    if not mdir:
+        return
+    try:
+        dst = Path(mdir) / tree / binding / f"{ns}.jsonl"
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dst)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 @dataclass
@@ -118,6 +138,7 @@ def upsert_run(binding: str, ns: str, rec: RunRecord) -> Path:
     ]
     path = results_path(binding, ns)
     _write_jsonl(path, rows)
+    _mirror("results", binding, ns, path)
     return path
 
 
@@ -130,6 +151,7 @@ def upsert_trace(binding: str, ns: str, tier: str, task: str, run: int, raw: str
     rows = {(o.get("tier"), o.get("task"), int(o.get("run") or 0)): o for o in _read_jsonl(path)}
     rows[(tier, task, int(run))] = {"tier": tier, "task": task, "run": int(run), "raw": raw}
     _write_jsonl(path, [rows[k] for k in sorted(rows)])
+    _mirror("traces", binding, ns, path)
     return path
 
 
