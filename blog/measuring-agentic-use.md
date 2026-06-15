@@ -55,15 +55,32 @@ This is what we're trying to do with this harness: we want to evaluate how much 
 an agent had to do a given task, and what changes can be done to the library to help
 them out.
 
-### Are all agents equal?
+### Which agents should you look at?
 
-[CLAUDE please develop this according to the notes below]
+Not all agents are equal, and their difference changes what you should look at when running them.
 
-- Start defining that there are two types of agents:
-    - the big ones, which will get the good result no matter what
-    - the small ones, which might not get to the result even with a lot of time
+*Frontier*
 
-Concretely, the harness scores each run on:
+At one end, you have the big, frontier, often closed models. On reasonably common tasks,
+these should get the right answer, eventually. For them, __"match %"__ saturates near
+100% and stops telling you much about your tool; a more interesting benchmark is the effort
+it took the agent to get there: how many turns, tokens and seconds it took, and whether they walked a clean
+path or used deprecated APIs.
+
+*Open*
+
+At the other end are the open models. Their size varies greatly, and so do their abilities.
+Metrics such as __"match %"__ are way more interesting than for their closed counterparts,
+as you can see how model sizes/capabilities affect the different models on your specific
+tool.
+
+On top of being insightful for you as a library maintainer, giving you insights on how to update
+your repository for agents to interact better with it, it's also useful for you as a user:
+if designing agentic workflows or choosing a model for them, you now have a harness to directly
+evaluate each of them on a set of tools directly related to the task you want to evaluate.
+
+The harness  scores every run on several axes, so that you can ask the question that's actually
+interesting for each class of model:
 
 - **match %** — did the final answer contain the expected result (per-task,
   case-insensitive substring / regex / exact, all explicit in the report);
@@ -71,9 +88,8 @@ Concretely, the harness scores each run on:
 - **runs with error %** — including a guard that flags runs which produced *nothing*
   (0 output tokens, no tool calls, no answer) so silent failures don't masquerade
   as "0";
-- **label adoption** — profile-defined behavior markers like `cli` ("ran the
-  `transformers` command-line tool instead of writing Python"), `pipeline`,
-  `ran-help`, etc., each with a one-line description shown in the UI.
+- **label adoption** — profile-defined behavior markers; see below for an explanation 
+  of what this is.
 
 
 Screenshot of what are the expected results we'd like to see across models and revisions
@@ -82,8 +98,6 @@ Screenshot of what are the expected results we'd like to see across models and r
 Because it captures the **native agent trace** of every run, you can also just…
 read what happened, and the traces are shareable through the Hub's
 [agent-traces viewer](https://huggingface.co/docs/hub/agent-traces).
-
-[/END CLAUDE]
 
 ### What this changes for closed (API) models
 
@@ -154,88 +168,9 @@ a single command:
 
 ---
 
-## How to use the app
+## Trying it yourself
 
-The harness is one CLI, `ag`. A **profile** defines the environment and the
-comparison axis; `transformers` is the reference profile (it builds a git worktree
-of `transformers` at each revision and derives the Skill), and there's a `mock`
-profile for fast UI testing.
-
-### 1. Install
-
-```bash
-git clone https://github.com/huggingface/is-transformers-agentic-enough
-cd is-transformers-agentic-enough
-uv venv --python 3.13 .env
-uv pip install --python .env/bin/python -e .
-```
-
-### 2. Run a suite for one revision
-
-```bash
-# Claude as the agent, all tiers/tasks, 5 runs each, on the v5.9.0 tag
-ag suite transformers v5.9.0 --runner claude --runs 5
-
-# An open model served on HF, only the fast tasks, on a named branch
-ag suite transformers 4d15b215f3 --runner pi \
-  --model Qwen/Qwen3-Coder-30B-A3B-Instruct \
-  --name "w/ CLI + Skill" --tasks classify-sentiment fill-mask tokenize-count
-```
-
-Every run records its transcript, metadata (status / tokens / time), and the native
-agent session.
-
-### 3. Compare many models × revisions on HF Jobs
-
-Declare the matrix in a YAML file and launch it as detached HF Jobs:
-
-```yaml
-# eval.yaml
-profile: transformers
-tasks: [classify-sentiment, fill-mask, image-classify]
-flavor: t4-medium
-models:
-  - claude
-  - Qwen/Qwen3-Coder-30B-A3B-Instruct
-  - google/gemma-4-31B-it
-revisions:
-  - v5.8.0
-  - v5.9.0
-  - v5.10.2
-  - {ref: 4d15b215f3, name: "w/ CLI + Skill"}
-```
-
-```bash
-# Skip cells already in the bucket, launch the rest, and watch them finish
-ag batch eval.yaml --submit --watch --skip-complete
-```
-
-Jobs persist each run to a shared Hugging Face **bucket** the moment it completes,
-so a crash or eviction never loses the runs that already succeeded, and re-running
-the same file resumes where you left off.
-
-### 4. Build and publish the report
-
-```bash
-# Pull the latest runs from the bucket and open the report locally
-ag report transformers --pull --open
-
-# Publish it as a static HF Space
-ag report transformers --pull --push --space your-org/agentic-eval-report
-```
-
-The report is a single, self-contained, theme-aware page with three tabs:
-
-- **Overview** — match %, median time, median tokens, error % across your chosen
-  X-axis (revision / model / tier) and series, plus the configurable
-  label-adoption chart and per-run distributions. Includes the fair-comparison
-  (shared-tasks) toggle.
-- **Coverage** — a task × revision heatmap (toggle models) so you can see what ran.
-- **Results** — every task (its exact prompt, the input image/audio, the match rule)
-  and, per model, what it answered — including a click-through into the *failing*
-  responses so you can tell a genuine miss from a too-strict matcher.
-
----
+The harness is one CLI, `ag` — install it, run a suite, fan it out across models × revisions on HF Jobs, and publish the report as a Hugging Face Space. The full, kept-current setup and usage instructions live in the [README](../README.md).
 
 ## Closing
 

@@ -257,7 +257,7 @@
 
 <div id="tab-coverage" class="pane" hidden>
   <section>
-    <h2>Coverage <span class="dim">— done / expected runs per task × revision · click a cell for the per-model breakdown (⚙ to pick models)</span></h2>
+    <h2>Coverage <span class="dim">— % of expected runs done per task × revision (hover for counts) · click a cell for the per-model breakdown (⚙ to pick models)</span></h2>
     <div id="cov-heatmap" style="margin-top:10px"></div>
     <div id="cov-detail" style="margin-top:12px"></div>
   </section>
@@ -1046,16 +1046,17 @@ function renderCoverage() {
   const sel = REVS.filter(c => state.revs.has(c.sha));
   const x = sel.map(dispName), shas = sel.map(c => c.sha);
   const y = TASKS.filter(t => state.tasks.has(t));
-  const z = y.map(t => shas.map(sha =>
+  const done = y.map(t => shas.map(sha =>
     RUNS.filter(r => r.task === t && r.sha === sha && state.nss.has(r.ns) && state.tiers.has(r.tier)).length));
   const exp = y.map(t => shas.map(sha => covExpected(t, sha)));
-  const maxv = Math.max(1, ...z.flat());
+  // color + cell value = % of expected runs that are done; null when nothing's expected
+  const z = done.map((row, i) => row.map((v, j) => exp[i][j] ? Math.round(100 * v / exp[i][j]) : null));
   const ann = [];
-  z.forEach((row, i) => row.forEach((v, j) => ann.push({
-    x: x[j], y: y[i], text: `${v}/${exp[i][j]}`, showarrow: false,
-    font: { size: 11, color: _covText(v / maxv) },
+  z.forEach((row, i) => row.forEach((pct, j) => ann.push({
+    x: x[j], y: y[i], text: pct === null ? '—' : `${pct}%`, showarrow: false,
+    font: { size: 11, color: _covText((pct || 0) / 100) },
   })));
-  const custom = z.map((row, i) => row.map((v, j) => exp[i][j]));
+  const custom = done.map((row, i) => row.map((v, j) => [v, exp[i][j]]));
   const layout = {
     height: Math.max(240, y.length * 26 + 130),
     margin: { l: 180, r: 10, t: 8, b: 96 },
@@ -1065,9 +1066,9 @@ function renderCoverage() {
     annotations: ann,
   };
   Plotly.react('cov-heatmap', [{
-    type: 'heatmap', z, x, y, customdata: custom, colorscale: COV_SCALE, zmin: 0, zmax: maxv,
-    colorbar: { title: 'runs' },
-    hovertemplate: '%{y} · %{x}<br>%{z} / %{customdata} runs done<extra></extra>',
+    type: 'heatmap', z, x, y, customdata: custom, colorscale: COV_SCALE, zmin: 0, zmax: 100,
+    colorbar: { title: '% done', ticksuffix: '%' },
+    hovertemplate: '%{y} · %{x}<br>%{customdata[0]}/%{customdata[1]} runs done (%{z}%)<extra></extra>',
   }], layout, { displayModeBar: false, responsive: true });
   resizePlots(['cov-heatmap']);
   const gd = document.getElementById('cov-heatmap');
