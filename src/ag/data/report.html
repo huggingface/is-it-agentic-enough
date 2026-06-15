@@ -234,12 +234,16 @@
   </section>
 
   <section>
-    <h2>Distributions <span class="dim">every point is a run (hover for model/tier/task/run)</span></h2>
+    <h2>Distributions <span class="dim">box = median + quartiles, dashed line = mean (hover a point for model/tier/task/run)</span></h2>
     <div id="filters" style="margin-bottom:6px">
       <div><label>Model</label><select id="f-dist-model"></select></div>
       <div><label>Boxes by</label><select id="f-dist">
         <option value="revision">revision</option>
         <option value="model">model (per revision)</option></select></div>
+      <div><label>Points</label><select id="f-dist-points">
+        <option value="none">none (clean boxes)</option>
+        <option value="outliers">outliers only</option>
+        <option value="all">every run</option></select></div>
       <div><label>Scale</label><select id="f-dist-scale">
         <option value="log">logarithmic</option>
         <option value="linear">linear</option></select></div>
@@ -405,7 +409,7 @@ const state = {
   nss: new Set(NSS), tiers: new Set(TIERS), tasks: new Set(TASKS), revs: new Set(REVS.map(c => c.sha)),
   metric: (CHOICE[0] || METRICS[0]).key, xdim: 'revision', series: 'tier',
   chart: 'line', group: 'model', distSplit: 'revision', distModel: '', distScale: 'log',
-  sharedModels: false, sharedRevisions: false,
+  distPoints: 'none', sharedModels: false, sharedRevisions: false,
 };
 
 // header
@@ -628,6 +632,10 @@ dmSel.addEventListener('change', () => { state.distModel = dmSel.value; renderDi
 const dscSel = document.getElementById('f-dist-scale');
 dscSel.value = state.distScale;
 dscSel.addEventListener('change', () => { state.distScale = dscSel.value; renderDistributions(); });
+
+const dpSel = document.getElementById('f-dist-points');
+dpSel.value = state.distPoints;
+dpSel.addEventListener('change', () => { state.distPoints = dpSel.value; renderDistributions(); });
 
 // multi-select chip groups (toggle freely; empty = nothing in scope)
 function chipGroup(elId, keys, set, onchange, labelFn) {
@@ -915,26 +923,31 @@ function boxFig(divId, title, valueFn) {
   const rs = distRuns();
   const byModel = !state.distModel && state.distSplit === 'model';
   const tip = r => `${shortModel(r.ns)} · ${r.tier} · ${r.task} · run${r.run}`;
+  // Default to clean boxes (median + quartiles + mean), since plotting every run
+  // overplots into an unreadable cloud; the Points control opts back in.
+  const pts = state.distPoints === 'all' ? 'all' : state.distPoints === 'outliers' ? 'outliers' : false;
+  const common = {
+    type: 'box', boxmean: true, boxpoints: pts,
+    ...(pts === 'all' ? { jitter: 0.3, pointpos: 0 } : {}),
+  };
   let traces;
   if (byModel) {
     traces = NSS.filter(n => state.nss.has(n)).map(ns => {
       const cr = rs.filter(r => r.ns === ns), col = DIMS.model.color(ns);
       return {
-        type: 'box', name: shortModel(ns),
+        ...common, name: shortModel(ns),
         x: cr.map(r => dispName(revBySha[r.sha])), y: cr.map(valueFn),
         text: cr.map(tip), hoverinfo: 'y+text',
-        boxpoints: 'all', jitter: 0.3, pointpos: 0,
-        marker: { color: col, size: 4, opacity: 0.7 }, line: { color: col }, fillcolor: col + '22',
+        marker: { color: col, size: 4, opacity: 0.6 }, line: { color: col }, fillcolor: col + '22',
       };
     });
   } else {
     traces = REVS.filter(c => state.revs.has(c.sha)).map(c => {
       const cr = rs.filter(r => r.sha === c.sha), col = revColor(c.sha);
       return {
-        type: 'box', name: dispName(c), y: cr.map(valueFn),
+        ...common, name: dispName(c), y: cr.map(valueFn),
         text: cr.map(tip), hoverinfo: 'y+text',
-        boxpoints: 'all', jitter: 0.3, pointpos: 0,
-        marker: { color: col, size: 4, opacity: 0.7 }, line: { color: col }, fillcolor: col + '22',
+        marker: { color: col, size: 4, opacity: 0.6 }, line: { color: col }, fillcolor: col + '22',
       };
     });
   }

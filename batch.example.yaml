@@ -28,7 +28,6 @@ models:
   - google/gemma-4-31B-it
   - moonshotai/Kimi-K2.6
   - zai-org/GLM-5.1
-  - Qwen/Qwen3-0.6B
   - Qwen/Qwen3-14B
   - Qwen/Qwen3-4B-Instruct-2507
 

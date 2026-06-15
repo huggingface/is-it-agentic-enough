@@ -99,47 +99,39 @@ Because it captures the **native agent trace** of every run, you can also just�
 read what happened, and the traces are shareable through the Hub's
 [agent-traces viewer](https://huggingface.co/docs/hub/agent-traces).
 
-### What this changes for closed (API) models
+Those two classes call for two different experiments.
 
-At the time of writing of this blogpost, closed models are increasingly good at coding tasks, especially
-well documented ones. The metric we're interested here is therefore not the match %: the model will get it
-right, very likely.
+### Closed models: hold the model, vary the tool
 
-But how long did it take? Did it follow an API path we deprecated, because it followed obsolete documentation?
-Did it run into an error we had not foreseen?
+Since a frontier model will usually get to the correct result, what you're really 
+measuring is the effort it took to do so. Did it take ten turns or one? Did it follow 
+an API path you deprecated because it trusted obsolete documentation? Did it hit an 
+error you hadn't foreseen? 
 
-For a hosted model you pay per token and per second, and or any unnecessary work the agent does:
-writing a script, hitting an error, reading a stack trace; every extra turn sends the growing 
-context to the model to continue the experiment.
+The natural experiment is to **fix one strong model and vary the tool's
+revisions**, watching whether the load it puts on the agent goes up or down. We used
+the harness on `transformers` exactly this way, to check whether adding a dedicated
+CLI and Skill actually lightened the agents' work:
 
-For closed models it becomes interesting to select a single model as the axis, and to check different revisions
-of the tools to see the eventual increase/reduction in model load. We used this tool on transformers to estimate
-whether the cost of adding a specific CLI and Skill to the project ended up helping out the agents in their work:
+[screenshot: one model, metrics across tool revisions]
 
 ---
 
-### What this changes for open models
+### Open models: hold the tool, vary the model
 
-Open models are widely different to closed models as you have a very granular level of control
-over the model: size, configuration, provider, training, etc.
+Open models give you a knob the closed APIs don't: granular control over size,
+configuration, provider, training, among others. They're also where a good tool surface 
+matters most: a small model asked to "use `transformers` to do X" on a `bare` checkout can
+guess an API that changed some releases ago, may do unnecessary tool calls, and can
+get the wrong answer.
 
-Open models are where the effect is most striking, because smaller open models are
-the ones that struggle most with cold-starting a complex API from memory.
+So here the experiment is the opposite of the above: **hold the tool and sweep the model**, to
+see *which* models actually cope with your task — not just by token count and time,
+but down to which ones can't reliably drive the tool calls at all. My intuition is
+that the smaller the model, the harder both tool use and the task get; I ran the
+harness across a range of model sizes to test exactly that:
 
-A `[[7B–30B]]` open model asked to "use `transformers` to do X" on a `bare`
-checkout often:
-
-- guesses an API that changed three releases ago,
-- burns its budget on retries, and
-- sometimes never converges — producing an empty or wrong answer.
-
-This tool therefore offers a deeper view in something different: token count and elapsed time are
-important yes, but it allows to see deeper exactly *which* models struggle with your task or tool.
-
-My intuition is that the smaller model, the harder it will be for it to handle tool calls and 
-tasks in general. I set up the tool to run across an array of model sizes to test just that:
-
-
+[screenshot: many models of varying size, one tool revision]
 
 > A note on fair comparison: naively averaging across tasks is misleading when
 > coverage is uneven (a model that only finished the quick tasks looks fast). The
@@ -148,23 +140,29 @@ tasks in general. I set up the tool to run across an array of model sizes to tes
 > task × revision × model cells actually ran.
 
 
-## Specific markers?
+## Tweaking the tool
 
-Giving the agent a first-class CLI collapses that loop. When the `cli` marker fires,
-a task that took *N* tool calls and a few thousand tokens of trial-and-error becomes
-a single command:
+### Specific markers
 
-- **Lower cost.** Fewer turns ⇒ fewer generated tokens and far fewer *repeated*
-  prompt tokens. In our runs, switching from the `bare` tier to the CLI-aware tier
-  cut median new tokens from `[[X]]` to `[[Y]]` on the `[[task]]` task. ([[fill in]])
-- **More predictable latency.** One deterministic command instead of an open-ended
-  generate-debug-retry loop. Median time dropped from `[[X]]s` to `[[Y]]s`. ([[fill in]])
-- **More *accurate* usage of the library.** The CLI encodes the right model-loading,
-  device, and dtype defaults, so the agent stops reinventing (and mis-implementing)
-  them. Fewer `runs with error %`: `[[X]]% → [[Y]]%`. ([[fill in]])
-- **Auditability.** The exact command is in the trace. For teams that need to know
-  *what* an agent ran against production data, "it typed `transformers classify …`"
-  is a much better answer than "it executed some generated Python."
+- what are specific markers? -> example of the CLI tool, or pipeline ref
+- 
+
+### Analyzing results: a not-so-straightforward understanding
+
+[CLAUDE]
+
+Introduce the entire reason this was made:
+- had an intuition for how to simplify transformers usage
+    - implement CLI
+    - implement skill
+- wanted a scientific backing of what I was pushing forward
+
+Analyzing results:
+- mention the CLI commit
+  - seems to help bigger models (Kimi, etc)
+  - is hurting smaller models, intuition: they probably do things from memory
+
+[END CLAUDE]
 
 ---
 
