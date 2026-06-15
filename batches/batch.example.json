@@ -2,249 +2,739 @@
   "profile": "transformers",
   "jobs": [
     {
-      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.8.0",
-      "ref": "v5.8.0",
-      "name": null,
-      "model": "MiniMaxAI/MiniMax-M2.7",
-      "job_id": "6a2a535c59bbdade52d495b9"
-    },
-    {
-      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.9.0",
-      "ref": "v5.9.0",
-      "name": null,
-      "model": "MiniMaxAI/MiniMax-M2.7",
-      "job_id": "6a2a536059bbdade52d495bb"
-    },
-    {
-      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.10.2",
-      "ref": "v5.10.2",
-      "name": null,
-      "model": "MiniMaxAI/MiniMax-M2.7",
-      "job_id": "6a2a536459bbdade52d495bd"
-    },
-    {
-      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0",
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0 \u00b7 classify-sentiment",
       "ref": "v5.11.0",
       "name": null,
       "model": "MiniMaxAI/MiniMax-M2.7",
-      "job_id": "6a2a5368c4f53f9fc5aa4b16"
+      "job_id": "6a2f8fd4234ca64b601245bc"
     },
     {
-      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ w/ CLI + Skill",
-      "ref": "4d15b215f3",
-      "name": "w/ CLI + Skill",
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0 \u00b7 extract-entities",
+      "ref": "v5.11.0",
+      "name": null,
       "model": "MiniMaxAI/MiniMax-M2.7",
-      "job_id": "6a2a5369c4f53f9fc5aa4b18"
+      "job_id": "6a2f8fd8871c005b5352d1c2"
     },
     {
-      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.8.0",
-      "ref": "v5.8.0",
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0 \u00b7 transcribe-audio",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "Qwen/Qwen3-Coder-Next",
-      "job_id": "6a2a536dc4f53f9fc5aa4b1a"
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a2f8fdc234ca64b601245be"
     },
     {
-      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.9.0",
-      "ref": "v5.9.0",
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0 \u00b7 tokenize-count",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "Qwen/Qwen3-Coder-Next",
-      "job_id": "6a2a537159bbdade52d495bf"
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a2f8fe0871c005b5352d1c4"
     },
     {
-      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.10.2",
-      "ref": "v5.10.2",
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0 \u00b7 caption-image",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "Qwen/Qwen3-Coder-Next",
-      "job_id": "6a2a537659bbdade52d495c1"
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a2f8fe4234ca64b601245c0"
     },
     {
-      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0",
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0 \u00b7 summarize-text",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a2f8fe8871c005b5352d1c6"
+    },
+    {
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0 \u00b7 answer-question",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a2f8fec871c005b5352d1c8"
+    },
+    {
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0 \u00b7 fill-mask",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a2f8ff0871c005b5352d1ca"
+    },
+    {
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0 \u00b7 zero-shot-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a2f8ff4871c005b5352d1cc"
+    },
+    {
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0 \u00b7 image-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a2f8ff8871c005b5352d1ce"
+    },
+    {
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0 \u00b7 detect-objects",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a2f8ffc234ca64b601245c2"
+    },
+    {
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0 \u00b7 visual-qa",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a2f9000234ca64b601245c4"
+    },
+    {
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0 \u00b7 generate-text",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a2f9004234ca64b601245c6"
+    },
+    {
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0 \u00b7 audio-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a2f9008871c005b5352d1d0"
+    },
+    {
+      "label": "pi:MiniMaxAI/MiniMax-M2.7 @ v5.11.0 \u00b7 compose-caption-translate",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "job_id": "6a2f900c234ca64b601245c8"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0 \u00b7 classify-sentiment",
       "ref": "v5.11.0",
       "name": null,
       "model": "Qwen/Qwen3-Coder-Next",
-      "job_id": "6a2a537ac4f53f9fc5aa4b1c"
+      "job_id": "6a2f9010871c005b5352d1d2"
     },
     {
-      "label": "pi:Qwen/Qwen3-Coder-Next @ w/ CLI + Skill",
-      "ref": "4d15b215f3",
-      "name": "w/ CLI + Skill",
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0 \u00b7 extract-entities",
+      "ref": "v5.11.0",
+      "name": null,
       "model": "Qwen/Qwen3-Coder-Next",
-      "job_id": "6a2a537ac4f53f9fc5aa4b1e"
+      "job_id": "6a2f9014234ca64b601245cc"
     },
     {
-      "label": "pi:Qwen/Qwen3.5-9B @ v5.8.0",
-      "ref": "v5.8.0",
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0 \u00b7 transcribe-audio",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "Qwen/Qwen3.5-9B",
-      "job_id": "6a2a537e59bbdade52d495c3"
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2f9018871c005b5352d1d4"
     },
     {
-      "label": "pi:Qwen/Qwen3.5-9B @ v5.9.0",
-      "ref": "v5.9.0",
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0 \u00b7 tokenize-count",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "Qwen/Qwen3.5-9B",
-      "job_id": "6a2a538259bbdade52d495c5"
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2f901c871c005b5352d1d6"
     },
     {
-      "label": "pi:Qwen/Qwen3.5-9B @ v5.10.2",
-      "ref": "v5.10.2",
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0 \u00b7 caption-image",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "Qwen/Qwen3.5-9B",
-      "job_id": "6a2a538759bbdade52d495c7"
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2f9020234ca64b601245ce"
     },
     {
-      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0",
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0 \u00b7 summarize-text",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2f9024871c005b5352d1d8"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0 \u00b7 answer-question",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2f9029871c005b5352d1da"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0 \u00b7 fill-mask",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2f902d871c005b5352d1dc"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0 \u00b7 zero-shot-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2f9031234ca64b601245d0"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0 \u00b7 image-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2f9035871c005b5352d1de"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0 \u00b7 detect-objects",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2f9039871c005b5352d1e0"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0 \u00b7 visual-qa",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2f903d234ca64b601245da"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0 \u00b7 generate-text",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2f9041871c005b5352d1e2"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0 \u00b7 audio-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2f9045234ca64b601245dc"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-Coder-Next @ v5.11.0 \u00b7 compose-caption-translate",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3-Coder-Next",
+      "job_id": "6a2f9049871c005b5352d1e4"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0 \u00b7 classify-sentiment",
       "ref": "v5.11.0",
       "name": null,
       "model": "Qwen/Qwen3.5-9B",
-      "job_id": "6a2a538bc4f53f9fc5aa4b20"
+      "job_id": "6a2f904e234ca64b601245de"
     },
     {
-      "label": "pi:Qwen/Qwen3.5-9B @ w/ CLI + Skill",
-      "ref": "4d15b215f3",
-      "name": "w/ CLI + Skill",
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0 \u00b7 extract-entities",
+      "ref": "v5.11.0",
+      "name": null,
       "model": "Qwen/Qwen3.5-9B",
-      "job_id": "6a2a538bc4f53f9fc5aa4b22"
+      "job_id": "6a2f9052234ca64b601245e0"
     },
     {
-      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.8.0",
-      "ref": "v5.8.0",
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0 \u00b7 transcribe-audio",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "Qwen/Qwen3.6-35B-A3B",
-      "job_id": "6a2a539059bbdade52d495c9"
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2f9056234ca64b601245e2"
     },
     {
-      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.9.0",
-      "ref": "v5.9.0",
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0 \u00b7 tokenize-count",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "Qwen/Qwen3.6-35B-A3B",
-      "job_id": "6a2a539459bbdade52d495cb"
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2f905a871c005b5352d1e6"
     },
     {
-      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.10.2",
-      "ref": "v5.10.2",
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0 \u00b7 caption-image",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "Qwen/Qwen3.6-35B-A3B",
-      "job_id": "6a2a539859bbdade52d495cd"
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2f905e871c005b5352d1e8"
     },
     {
-      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0",
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0 \u00b7 summarize-text",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2f9062234ca64b601245e4"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0 \u00b7 answer-question",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2f9066871c005b5352d1ea"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0 \u00b7 fill-mask",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2f906a871c005b5352d1ec"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0 \u00b7 zero-shot-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2f906e871c005b5352d1ee"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0 \u00b7 image-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2f9072234ca64b601245e6"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0 \u00b7 detect-objects",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2f9076234ca64b601245e8"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0 \u00b7 visual-qa",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2f907b234ca64b601245ea"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0 \u00b7 generate-text",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2f907f234ca64b601245ec"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0 \u00b7 audio-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2f9082234ca64b601245ee"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.5-9B @ v5.11.0 \u00b7 compose-caption-translate",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.5-9B",
+      "job_id": "6a2f9086871c005b5352d1f0"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0 \u00b7 classify-sentiment",
       "ref": "v5.11.0",
       "name": null,
       "model": "Qwen/Qwen3.6-35B-A3B",
-      "job_id": "6a2a539dc4f53f9fc5aa4b24"
+      "job_id": "6a2f908a234ca64b601245f0"
     },
     {
-      "label": "pi:Qwen/Qwen3.6-35B-A3B @ w/ CLI + Skill",
-      "ref": "4d15b215f3",
-      "name": "w/ CLI + Skill",
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0 \u00b7 extract-entities",
+      "ref": "v5.11.0",
+      "name": null,
       "model": "Qwen/Qwen3.6-35B-A3B",
-      "job_id": "6a2a539dc4f53f9fc5aa4b26"
+      "job_id": "6a2f908e234ca64b601245f2"
     },
     {
-      "label": "pi:google/gemma-4-31B-it @ v5.8.0",
-      "ref": "v5.8.0",
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0 \u00b7 transcribe-audio",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "google/gemma-4-31B-it",
-      "job_id": "6a2a53a1c4f53f9fc5aa4b28"
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2f9092234ca64b601245f4"
     },
     {
-      "label": "pi:google/gemma-4-31B-it @ v5.9.0",
-      "ref": "v5.9.0",
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0 \u00b7 tokenize-count",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "google/gemma-4-31B-it",
-      "job_id": "6a2a53a6c4f53f9fc5aa4b2a"
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2f9096871c005b5352d1f2"
     },
     {
-      "label": "pi:google/gemma-4-31B-it @ v5.10.2",
-      "ref": "v5.10.2",
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0 \u00b7 caption-image",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "google/gemma-4-31B-it",
-      "job_id": "6a2a53aac4f53f9fc5aa4b2c"
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2f909b871c005b5352d1f4"
     },
     {
-      "label": "pi:google/gemma-4-31B-it @ v5.11.0",
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0 \u00b7 summarize-text",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2f909f234ca64b601245f6"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0 \u00b7 answer-question",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2f90a3234ca64b601245f8"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0 \u00b7 fill-mask",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2f90a7234ca64b601245fa"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0 \u00b7 zero-shot-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2f90ab871c005b5352d1f6"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0 \u00b7 image-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2f90af871c005b5352d1f8"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0 \u00b7 detect-objects",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2f90b3234ca64b601245fc"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0 \u00b7 visual-qa",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2f90b7871c005b5352d1fa"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0 \u00b7 generate-text",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2f90bb234ca64b60124602"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0 \u00b7 audio-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2f90bf871c005b5352d1fc"
+    },
+    {
+      "label": "pi:Qwen/Qwen3.6-35B-A3B @ v5.11.0 \u00b7 compose-caption-translate",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "Qwen/Qwen3.6-35B-A3B",
+      "job_id": "6a2f90c3871c005b5352d1fe"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0 \u00b7 classify-sentiment",
       "ref": "v5.11.0",
       "name": null,
       "model": "google/gemma-4-31B-it",
-      "job_id": "6a2a53aec4f53f9fc5aa4b2e"
+      "job_id": "6a2f90c7234ca64b60124606"
     },
     {
-      "label": "pi:google/gemma-4-31B-it @ w/ CLI + Skill",
-      "ref": "4d15b215f3",
-      "name": "w/ CLI + Skill",
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0 \u00b7 extract-entities",
+      "ref": "v5.11.0",
+      "name": null,
       "model": "google/gemma-4-31B-it",
-      "job_id": "6a2a53ae59bbdade52d495d7"
+      "job_id": "6a2f90cb234ca64b60124608"
     },
     {
-      "label": "pi:moonshotai/Kimi-K2.6 @ v5.8.0",
-      "ref": "v5.8.0",
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0 \u00b7 transcribe-audio",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "moonshotai/Kimi-K2.6",
-      "job_id": "6a2a53b359bbdade52d495d9"
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2f90cf871c005b5352d206"
     },
     {
-      "label": "pi:moonshotai/Kimi-K2.6 @ v5.9.0",
-      "ref": "v5.9.0",
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0 \u00b7 tokenize-count",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "moonshotai/Kimi-K2.6",
-      "job_id": "6a2a53b759bbdade52d495db"
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2f90d3234ca64b6012460a"
     },
     {
-      "label": "pi:moonshotai/Kimi-K2.6 @ v5.10.2",
-      "ref": "v5.10.2",
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0 \u00b7 caption-image",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "moonshotai/Kimi-K2.6",
-      "job_id": "6a2a53bb59bbdade52d495dd"
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2f90d7871c005b5352d208"
     },
     {
-      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0",
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0 \u00b7 summarize-text",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2f90db234ca64b6012460c"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0 \u00b7 answer-question",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2f90df234ca64b6012460e"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0 \u00b7 fill-mask",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2f90e4871c005b5352d20a"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0 \u00b7 zero-shot-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2f90e8234ca64b60124610"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0 \u00b7 image-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2f90ec234ca64b60124612"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0 \u00b7 detect-objects",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2f90f0234ca64b60124614"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0 \u00b7 visual-qa",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2f90f4871c005b5352d20e"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0 \u00b7 generate-text",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2f90f8234ca64b60124616"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0 \u00b7 audio-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2f90fc871c005b5352d210"
+    },
+    {
+      "label": "pi:google/gemma-4-31B-it @ v5.11.0 \u00b7 compose-caption-translate",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "google/gemma-4-31B-it",
+      "job_id": "6a2f9100871c005b5352d212"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0 \u00b7 classify-sentiment",
       "ref": "v5.11.0",
       "name": null,
       "model": "moonshotai/Kimi-K2.6",
-      "job_id": "6a2a53bf59bbdade52d495df"
+      "job_id": "6a2f9104871c005b5352d214"
     },
     {
-      "label": "pi:moonshotai/Kimi-K2.6 @ w/ CLI + Skill",
-      "ref": "4d15b215f3",
-      "name": "w/ CLI + Skill",
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0 \u00b7 extract-entities",
+      "ref": "v5.11.0",
+      "name": null,
       "model": "moonshotai/Kimi-K2.6",
-      "job_id": "6a2a53c0c4f53f9fc5aa4b30"
+      "job_id": "6a2f9108871c005b5352d218"
     },
     {
-      "label": "pi:zai-org/GLM-5.1 @ v5.8.0",
-      "ref": "v5.8.0",
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0 \u00b7 transcribe-audio",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "zai-org/GLM-5.1",
-      "job_id": "6a2a53c4c4f53f9fc5aa4b32"
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2f910c871c005b5352d21a"
     },
     {
-      "label": "pi:zai-org/GLM-5.1 @ v5.9.0",
-      "ref": "v5.9.0",
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0 \u00b7 tokenize-count",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "zai-org/GLM-5.1",
-      "job_id": "6a2a53c959bbdade52d495e1"
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2f9110871c005b5352d21c"
     },
     {
-      "label": "pi:zai-org/GLM-5.1 @ v5.10.2",
-      "ref": "v5.10.2",
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0 \u00b7 caption-image",
+      "ref": "v5.11.0",
       "name": null,
-      "model": "zai-org/GLM-5.1",
-      "job_id": "6a2a53cdc4f53f9fc5aa4b34"
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2f9115234ca64b60124618"
     },
     {
-      "label": "pi:zai-org/GLM-5.1 @ v5.11.0",
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0 \u00b7 summarize-text",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2f9119871c005b5352d21e"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0 \u00b7 answer-question",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2f911d871c005b5352d220"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0 \u00b7 fill-mask",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2f9121871c005b5352d222"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0 \u00b7 zero-shot-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2f9125234ca64b6012461a"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0 \u00b7 image-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2f9129234ca64b6012461c"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0 \u00b7 detect-objects",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2f912d871c005b5352d224"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0 \u00b7 visual-qa",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2f9131871c005b5352d226"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0 \u00b7 generate-text",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2f9135234ca64b6012461e"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0 \u00b7 audio-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2f9139234ca64b60124620"
+    },
+    {
+      "label": "pi:moonshotai/Kimi-K2.6 @ v5.11.0 \u00b7 compose-caption-translate",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "moonshotai/Kimi-K2.6",
+      "job_id": "6a2f913d871c005b5352d228"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0 \u00b7 classify-sentiment",
       "ref": "v5.11.0",
       "name": null,
       "model": "zai-org/GLM-5.1",
-      "job_id": "6a2a53d159bbdade52d495e3"
+      "job_id": "6a2f9141871c005b5352d22a"
     },
     {
-      "label": "pi:zai-org/GLM-5.1 @ w/ CLI + Skill",
-      "ref": "4d15b215f3",
-      "name": "w/ CLI + Skill",
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0 \u00b7 extract-entities",
+      "ref": "v5.11.0",
+      "name": null,
       "model": "zai-org/GLM-5.1",
-      "job_id": "6a2a53d1c4f53f9fc5aa4b36"
+      "job_id": "6a2f9145871c005b5352d22c"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0 \u00b7 transcribe-audio",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2f9149871c005b5352d22e"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0 \u00b7 tokenize-count",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2f914d871c005b5352d230"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0 \u00b7 caption-image",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2f9152871c005b5352d232"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0 \u00b7 summarize-text",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2f9156871c005b5352d234"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0 \u00b7 answer-question",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2f915a234ca64b60124622"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0 \u00b7 fill-mask",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2f915e234ca64b60124624"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0 \u00b7 zero-shot-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2f9162871c005b5352d238"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0 \u00b7 image-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2f9166234ca64b60124626"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0 \u00b7 detect-objects",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2f916a234ca64b60124636"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0 \u00b7 visual-qa",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2f916e871c005b5352d23c"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0 \u00b7 generate-text",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2f9172234ca64b60124638"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0 \u00b7 audio-classify",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2f9176871c005b5352d23e"
+    },
+    {
+      "label": "pi:zai-org/GLM-5.1 @ v5.11.0 \u00b7 compose-caption-translate",
+      "ref": "v5.11.0",
+      "name": null,
+      "model": "zai-org/GLM-5.1",
+      "job_id": "6a2f917a871c005b5352d240"
     }
   ]
 }

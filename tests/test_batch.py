@@ -54,7 +54,8 @@ def test_expand_matrix_and_runner_resolution(tmp_path):
 
 
 def test_plan_is_dry_run(tmp_path, capsys):
-    rc = batch.run_batch(_write(tmp_path, CONFIG), submit=False)
+    # skip_complete=False keeps this offline (no bucket lookup)
+    rc = batch.run_batch(_write(tmp_path, CONFIG), submit=False, skip_complete=False)
     assert rc == 0
     # run_batch logs via ag.log → stderr; just assert it didn't try to launch
     # (no exception, returns 0). The plan content is asserted directly below.
@@ -77,6 +78,19 @@ def test_cell_args_threads_config(tmp_path):
     assert a.tasks == ["classify-sentiment", "tokenize-count"]
     assert a.flavor == "t4-small"
     assert a.runs is None  # not set → per-task default downstream
+
+
+def test_per_task_expansion(tmp_path):
+    cfg = batch.load_batch(_write(tmp_path, CONFIG))   # 3 models × 2 revisions, 2 tasks
+    assert len(batch.expand(cfg)) == 6                  # default: one cell per model×revision
+    pt = batch.expand(cfg, per_task=True)
+    assert len(pt) == 6 * 2                             # × 2 tasks
+    assert all(c.task for c in pt)
+    # each per-task cell runs exactly its one task
+    a = batch._cell_args(cfg, pt[0])
+    assert a.tasks == [pt[0].task]
+    # label carries the task so jobs/state stay distinguishable
+    assert pt[0].task in pt[0].label()
 
 
 def test_force_flag_overrides_cfg(tmp_path):

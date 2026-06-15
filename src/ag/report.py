@@ -247,7 +247,7 @@ def collect_records(refs: list[str] | None = None, *, markers: list | None = Non
     tasks_meta = [
         {"id": tid, "category": t.get("category"), "expected": t.get("expected"),
          "match": t.get("match") or "substring", "prompt": (t.get("prompt") or "").strip(),
-         "media": _media_refs(t.get("prompt") or "")}
+         "media": _media_refs(t.get("prompt") or ""), "runs": int(t.get("runs") or 3)}
         for tid, t in all_tasks.items()
     ]
     # inline each referenced input once as a data URI so the static report can

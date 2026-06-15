@@ -257,8 +257,9 @@
 
 <div id="tab-coverage" class="pane" hidden>
   <section>
-    <h2>Coverage <span class="dim">— how many runs exist for each task × revision (⚙ to pick models)</span></h2>
+    <h2>Coverage <span class="dim">— done / expected runs per task × revision · click a cell for the per-model breakdown (⚙ to pick models)</span></h2>
     <div id="cov-heatmap" style="margin-top:10px"></div>
+    <div id="cov-detail" style="margin-top:12px"></div>
   </section>
 </div>
 
@@ -1001,7 +1002,44 @@ function _covText(t) {
   const [r, g, b] = _covColor(t);
   return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#111111' : '#ffffff';
 }
-// tasks × revisions coverage heatmap (run counts over the toggled models)
+// expected sample count for a task: the intended runs (max run index seen, or
+// the task's declared `runs`, default 3) so partial cells stand out.
+const _maxRunByTask = {};
+RUNS.forEach(r => { _maxRunByTask[r.task] = Math.max(_maxRunByTask[r.task] || 0, r.run || 0); });
+function expectedRuns(task) {
+  return Math.max(_maxRunByTask[task] || 0, (TASK_META[task] || {}).runs || 3);
+}
+// tiers a revision actually supports (seen in any run there) ∩ selected tiers —
+// so releases without the skill tier don't count it as "missing".
+const _tiersBySha = {};
+RUNS.forEach(r => { (_tiersBySha[r.sha] = _tiersBySha[r.sha] || new Set()).add(r.tier); });
+function availTiers(sha) {
+  const seen = _tiersBySha[sha] || new Set();
+  return TIERS.filter(t => state.tiers.has(t) && seen.has(t));
+}
+function covExpected(task, sha) {
+  return NSS.filter(n => state.nss.has(n)).length * availTiers(sha).length * expectedRuns(task);
+}
+// per-(task,revision) breakdown shown on click: model × tier done/expected + missing run indices
+function covDetail(task, sha) {
+  const er = expectedRuns(task), tiers = availTiers(sha);
+  const models = NSS.filter(n => state.nss.has(n));
+  const head = tiers.map(t => `<td class="m">${esc(t)}</td>`).join('');
+  const rows = models.map(ns => {
+    const cells = tiers.map(tier => {
+      const have = new Set(RUNS.filter(r => r.task === task && r.sha === sha && r.ns === ns && r.tier === tier).map(r => r.run));
+      const missing = [];
+      for (let i = 1; i <= er; i++) if (!have.has(i)) missing.push(i);
+      const cls = have.size >= er ? 'ans-ok' : have.size === 0 ? 'ans-bad' : 'ans-mid';
+      const miss = (missing.length && missing.length < er) ? ` <span class="dim">(missing ${missing.join(',')})</span>` : '';
+      return `<td class="v ${cls}">${have.size}/${er}${miss}</td>`;
+    }).join('');
+    return `<tr><td class="m">${esc(shortModel(ns))}</td>${cells}</tr>`;
+  }).join('');
+  return `<div class="dim" style="font-size:12px;margin-bottom:6px"><b>${esc(task)}</b> @ ${esc(dispName(revBySha[sha]))} — completed / expected per model × tier</div>
+    <table class="answers"><tr><td class="m dim">model</td>${head}</tr>${rows}</table>`;
+}
+// tasks × revisions coverage heatmap — cell shows done/expected; click for detail
 function renderCoverage() {
   if (!covOpen) return;
   const T = themeColors();
@@ -1010,12 +1048,14 @@ function renderCoverage() {
   const y = TASKS.filter(t => state.tasks.has(t));
   const z = y.map(t => shas.map(sha =>
     RUNS.filter(r => r.task === t && r.sha === sha && state.nss.has(r.ns) && state.tiers.has(r.tier)).length));
+  const exp = y.map(t => shas.map(sha => covExpected(t, sha)));
   const maxv = Math.max(1, ...z.flat());
   const ann = [];
   z.forEach((row, i) => row.forEach((v, j) => ann.push({
-    x: x[j], y: y[i], text: String(v), showarrow: false,
+    x: x[j], y: y[i], text: `${v}/${exp[i][j]}`, showarrow: false,
     font: { size: 11, color: _covText(v / maxv) },
   })));
+  const custom = z.map((row, i) => row.map((v, j) => exp[i][j]));
   const layout = {
     height: Math.max(240, y.length * 26 + 130),
     margin: { l: 180, r: 10, t: 8, b: 96 },
@@ -1025,11 +1065,20 @@ function renderCoverage() {
     annotations: ann,
   };
   Plotly.react('cov-heatmap', [{
-    type: 'heatmap', z, x, y, colorscale: COV_SCALE, zmin: 0, zmax: maxv,
+    type: 'heatmap', z, x, y, customdata: custom, colorscale: COV_SCALE, zmin: 0, zmax: maxv,
     colorbar: { title: 'runs' },
-    hovertemplate: '%{y} · %{x}<br>%{z} runs<extra></extra>',
+    hovertemplate: '%{y} · %{x}<br>%{z} / %{customdata} runs done<extra></extra>',
   }], layout, { displayModeBar: false, responsive: true });
   resizePlots(['cov-heatmap']);
+  const gd = document.getElementById('cov-heatmap');
+  if (gd && !gd._covClick && gd.on) {
+    gd._covClick = true;
+    gd.on('plotly_click', ev => {
+      const p = ev.points && ev.points[0]; if (!p) return;
+      const c = REVS.find(rev => dispName(rev) === p.x); if (!c) return;
+      document.getElementById('cov-detail').innerHTML = covDetail(p.y, c.sha);
+    });
+  }
 }
 function renderAll() { refreshScope(); renderViz(); renderTasks(); renderTable(); renderDistributions(); }
 renderAll();
