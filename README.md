@@ -2,26 +2,24 @@
 <img width="2882" height="1446" alt="image" src="https://github.com/user-attachments/assets/84465536-8ed7-4293-a956-e7d33d779afb" />
 </p>
 
-# `agent-eval` — is your library *agentic enough*?
+# `agent-eval`
 
-`agent-eval` measures **how a coding agent actually uses a library** — not just whether it
-gets the right answer, but *how it gets there*: reaching for a CLI vs. hand-writing
-Python, how many tokens and seconds it burns, and how often it errors. It runs the
-same tasks across **library revisions** and **models**, and renders everything as a
-single static HTML report you can host as a Hugging Face Space.
+`agent-eval` measures how a coding agent uses a library. Not just whether it gets
+the right answer, but how it gets there: reaching for a CLI vs. hand-writing Python,
+how many tokens and seconds it spends, and how often it errors. It runs the same
+tasks across library revisions and models, and renders the results as a static HTML
+report you can host as a Hugging Face Space.
 
-Everything environment-specific — including the task suite — lives behind a
-**profile**: `transformers` (the reference study) or `mock` (a fast, no-agent
-profile for trying the UI). Runs are launched from a YAML matrix as Hugging Face
-Jobs, and results are explored in the static report it builds.
-
-> 📝 The *why* — and the findings — are in the [blog post](./blog/measuring-agentic-use.md).
+Everything environment-specific, including the task suite, lives behind a profile:
+`transformers` (the reference study) or `mock` (a fast, no-agent profile for trying
+the UI). Runs are launched from a YAML matrix as Hugging Face Jobs. Results are
+explored in the report it builds.
 
 > ⚠️ **Trusted local use only.** The `transformers` profile runs a coding agent with
 > bypassed permissions and executes code from whatever revision you point it at, and
-> traces can contain prompts/output/paths. See [SECURITY.md](./SECURITY.md) before
-> pointing it at code you didn't write or sharing results. (The `mock` profile runs
-> no agent and is always safe.)
+> traces can contain prompts, output, and paths. See [SECURITY.md](./SECURITY.md)
+> before pointing it at code you didn't write or sharing results. (The `mock`
+> profile runs no agent and is always safe.)
 
 ## Install
 
@@ -36,10 +34,23 @@ The `transformers` profile expects a `transformers` checkout at `../transformers
 (override with `AE_TRANSFORMERS_SRC`). Runtime state lands next to the cwd
 (override with `AE_DATA_DIR`).
 
-## 1. Define your matrix and launch it
+## Commands
 
-Launching is YAML-only: declare the open models × revisions and launch the matrix
-as detached Hugging Face Jobs.
+There are five commands. Launching is YAML-only (`batch`); results are viewed only
+in the report. See [API.md](./API.md) for every flag.
+
+| Command | What it does |
+| --- | --- |
+| `agent-eval batch <file.yaml>` | Launch a model × revision matrix as Hugging Face Jobs. Dry-run until `--submit`. |
+| `agent-eval report <profile>` | Build the static HTML report; publish it as a Space with `--push`. |
+| `agent-eval sync [bucket]` | Mirror `results/` and `traces/` to or from a Hugging Face bucket. |
+| `agent-eval upload <repo>` | Package native agent traces into a Hugging Face dataset. |
+| `agent-eval setup <profile> <ref>` | Build (or `--remove`) a profile's per-revision environment. Optional; jobs build their own. |
+
+## 1. Define a matrix and launch it
+
+Declare the open models and revisions in a YAML file, then launch the matrix as
+detached Hugging Face Jobs.
 
 ```yaml
 # eval.yaml
@@ -63,18 +74,18 @@ agent-eval batch eval.yaml --submit --watch            # one job per model × re
 agent-eval batch eval.yaml --submit --watch --per-task # one job per model × revision × task
 ```
 
-Each revision is run across three **tiers** — how much help the agent gets:
-`bare` (nothing) → `clone` (the repo in the working dir) → `skill` (a packaged
-Skill). Every run records its transcript, metadata, and native agent session.
+Each revision is run across three tiers of assistance: `bare` (nothing), `clone`
+(the repo in the working directory), and `skill` (a packaged Skill). Every run
+records its transcript, metadata, and native agent session.
 
-Jobs persist each run to a shared Hugging Face **bucket** the moment it finishes,
-so a crash never loses completed runs. Re-running the same file automatically
-**skips cells already done** and flags partially-done ones (a prior job was likely
-killed); `--watch` reports failures with their logs.
+Jobs persist each run to a shared Hugging Face bucket the moment it finishes, so a
+crash never loses completed runs. Re-running the same file skips cells already done
+and flags partially-done ones (a prior job was likely killed). `--watch` reports
+failures with their logs.
 
 ## 2. Build and publish the report
 
-Results are explored only here — the report, not the CLI.
+Results are explored in the report, not the CLI.
 
 ```bash
 agent-eval report transformers --pull --open                              # refresh + open locally
@@ -83,15 +94,16 @@ agent-eval report transformers --pull --push --space your-org/your-report # publ
 
 The report is one self-contained, theme-aware page with three tabs:
 
-- **Overview** — match %, median time, median tokens, error % across your chosen
-  axes, plus label-adoption (CLI vs. `pipeline()`, …) and per-run distributions.
-- **Coverage** — a task × revision heatmap of `done / expected` runs.
-- **Results** — every task (prompt, input image/audio, match rule) and what each
+- **Overview**: match %, median time, median tokens, and error % across your chosen
+  axes, plus label adoption (CLI vs. `pipeline()`, and so on) and per-run distributions.
+- **Coverage**: a task × revision heatmap of `done / expected` runs.
+- **Results**: every task (prompt, input image or audio, match rule) and what each
   model answered, with click-through into the failing responses.
 
-Configuration (which models / revisions / tiers / tasks) lives behind the **⚙ gear**.
+Configuration (which models, revisions, tiers, and tasks) lives behind the ⚙ gear.
 
 ## More
 
-- **Full CLI reference** — every subcommand and flag: [API.md](./API.md)
-- **Security & safe sharing**: [SECURITY.md](./SECURITY.md)
+- Full CLI reference, every subcommand and flag: [API.md](./API.md)
+- Defining your own profile (with the `transformers` profile as a worked example): [PROFILES.md](./PROFILES.md)
+- Security and safe sharing: [SECURITY.md](./SECURITY.md)

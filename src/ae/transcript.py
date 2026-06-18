@@ -1,14 +1,13 @@
 """Shared parsing of a normalized stream-json run transcript.
 
-Both the per-commit report (:mod:`ae.analyze`) and the per-cell drill-down
-(:mod:`ae.explain`) need the same thing from a run's ``.jsonl``: the ordered
-sequence of tool calls, each paired with its ``tool_result`` (content +
-``is_error``), plus the final answer. This module is the single place that walks
-the file and pairs ``tool_use`` ↔ ``tool_result`` by id; the two readers build
-their own views on top of :class:`Transcript`.
+The run-scoring layer (:mod:`ae.runs`) and the report builder need the same thing
+from a run's ``.jsonl``: the ordered sequence of tool calls, each paired with its
+``tool_result`` (content + ``is_error``), plus the final answer. This module is the
+single place that walks the file and pairs ``tool_use`` with ``tool_result`` by id;
+callers build their own views on top of :class:`Transcript`.
 
 The walk tolerates in-flight writes (a partial final line) and missing files, so
-it is safe to call while ``agent-eval diff`` is still producing the file.
+it is safe to call while a job is still producing the file.
 """
 
 from __future__ import annotations

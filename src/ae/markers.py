@@ -35,7 +35,7 @@ class Marker:
 
 
 def run_corpus(run) -> dict[str, str]:
-    """Assemble the per-scope search corpus from an ``analyze.Run`` (duck-typed:
+    """Assemble the per-scope search corpus from a ``runs.Run`` (duck-typed:
     uses ``.tool_calls``, ``.tool_results``, ``.final``)."""
     cmds: list[str] = []
     wrote: list[str] = []

@@ -8,8 +8,8 @@ string is compared to the agent's final answer:
 - ``regex`` — ``re.search`` of ``expected`` (a pattern) against the answer.
 - ``judge`` — semantic grading by an LLM. Not implemented yet (raises).
 
-Kept deliberately tiny and dependency-free so both the live read-side
-(:mod:`ae.analyze`) and any future scorer can share one definition of "matched".
+Kept deliberately tiny and dependency-free so the run-scoring layer
+(:mod:`ae.runs`) and any future scorer can share one definition of "matched".
 """
 
 from __future__ import annotations

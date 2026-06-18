@@ -8,14 +8,14 @@ matching; everything environment-specific (how to build a sandbox, what
 
 Vocabulary:
 
-- **binding** — one point on the comparison axis the suite sweeps. For the
-  ``transformers`` profile a binding is a git revision (``transformers@<sha>``);
-  ``agent-eval diff A..B`` runs the suite at bindings A and B and compares them.
-- **tier** — "how much help the agent gets" (the generic form of the old
-  ``bare``/``clone``/``skill`` variants). A profile declares its own tiers and
+- **binding**: one point on the comparison axis the suite sweeps. For the
+  ``transformers`` profile a binding is a git revision (``transformers@<sha>``); a
+  ``batch`` matrix runs the suite at each binding and the report compares them.
+- **tier**: "how much help the agent gets" (the generic form of the
+  ``bare``/``clone``/``skill`` conditions). A profile declares its own tiers and
   decides how each seeds the workspace and what assets the agent is handed.
-- **assets** — per-tier extras passed to the runner, normalized so runners stay
-  profile-agnostic: ``skill_dir`` (Pi ``--skill``) points at an Agent-Skills
+- **assets**: per-tier extras passed to the runner, normalized so runners stay
+  profile-agnostic. ``skill_dir`` (Pi ``--skill``) points at an Agent-Skills
   layout. Empty for tiers/profiles with no agent assets.
 
 Profiles register themselves in :data:`_REGISTRY`; resolve one with

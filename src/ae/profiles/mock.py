@@ -1,16 +1,15 @@
 """A fast, fake profile for exercising the UI / reports end-to-end.
 
-No git, no venv, no installation, no real agent. Paired with ``--runner mock``,
+No git, no venv, no installation, no real agent. Paired with the ``mock`` runner,
 a whole suite finishes in seconds and produces realistic-looking (randomized)
-results, traces, and reports — so you can iterate on the dashboard / report /
-sync UI, and smoke-test the full pipeline, without touching transformers.
+results, traces, and reports, so you can iterate on the report / sync UI and
+smoke-test the full pipeline without touching transformers.
 
-    agent-eval suite mock dev --runner mock
-    agent-eval diff mock v1..v2 --runner mock
-    agent-eval report mock             # then eyeball the HTML
+Launch it from a batch YAML with ``{model: m, runner: mock}`` (mock cells run
+locally), then ``agent-eval report mock`` to eyeball the HTML.
 
-Bindings are arbitrary labels (no resolution); tiers and markers mirror the
-transformers profile so the report looks the same shape.
+Bindings are arbitrary labels (no resolution); tiers, markers, and tasks mirror
+the transformers profile so the report looks the same shape.
 """
 
 from __future__ import annotations
