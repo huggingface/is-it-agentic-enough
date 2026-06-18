@@ -1,16 +1,14 @@
 """End-to-end: drive a real suite through the mock profile + mock runner (no
 agent, no network, no install) and assert the whole pipeline — run → write →
-trace → cleanup → read-side reports — behaves."""
+trace → cleanup → web report — behaves."""
 
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 
-from ag import analyze, compare
-from ag.profile import get_profile
-from ag.run_suite import run_suite
+from ae.profile import get_profile
+from ae.run_suite import run_suite
 
 PROFILE = get_profile("mock")
 MARKERS = PROFILE.markers()
@@ -26,13 +24,13 @@ def _run_suite(binding):
 
 
 def test_mock_suite_writes_expected_layout(data_root):
-    from ag import store
+    from ae import store
 
     _run_suite("dev1")
-    # All 12 runs (2 tasks × 3 tiers × 2 runs) live in ONE cell file, not 24
-    # little ones — that's the point of the bundled format.
-    cell_files = list((data_root / "results" / "dev1" / "mock").glob("*.jsonl"))
-    assert [p.name for p in cell_files] == ["default.jsonl"]
+    # 12 runs (2 tasks × 3 tiers × 2 runs) live in ONE shard per task (not 24 tiny
+    # per-run files), under the model's shard dir — that's the sharded format.
+    shards = sorted(p.name for p in (data_root / "results" / "dev1" / "mock" / "default").glob("*.jsonl"))
+    assert shards == ["classify-sentiment.jsonl", "tokenize-count.jsonl"]
 
     runs = store.list_runs("dev1", "mock/default")
     assert len(runs) == 12
@@ -47,12 +45,13 @@ def test_mock_suite_writes_expected_layout(data_root):
 
 
 def test_mock_suite_populates_traces(data_root):
-    from ag import store
+    from ae import store
 
     _run_suite("dev1")
-    # one bundled traces file per cell, one line (native session) per run
-    cell_files = list((data_root / "traces" / "dev1" / "mock").glob("*.jsonl"))
-    assert [p.name for p in cell_files] == ["default.jsonl"]
+    # one native-session file per run (Hub-detectable), named <tier>__<task>__run<N>.jsonl
+    files = sorted(p.name for p in (data_root / "traces" / "dev1" / "mock" / "default").glob("*.jsonl"))
+    assert len(files) == 12  # 2 tasks × 3 tiers × 2 runs
+    assert "bare__classify-sentiment__run1.jsonl" in files
     traces = store.list_traces("dev1", "mock/default")
     assert len(traces) == 12 and all(t.get("raw") for t in traces)
 
@@ -67,29 +66,9 @@ def test_mock_suite_cleans_up_workspaces(data_root):
     assert not list(Path(tempfile.gettempdir()).glob("dev1__*"))
 
 
-def test_read_side_over_mock_data(data_root):
-    _run_suite("dev1")
-    md = analyze.analyze("dev1", "classify-sentiment", ns="mock/default",
-                         tiers=TIERS, markers=MARKERS)
-    assert "# Agent behavior @ dev1" in md
-    assert "### bare" in md and "### skill" in md
-    # markers and/or match should surface somewhere in the cells
-    assert "🏷" in md or "✓" in md
-
-
-def test_compare_two_mock_bindings(data_root):
-    _run_suite("dev1")
-    _run_suite("dev2")
-    out = compare.compare(["dev1", "dev2"], ns="mock/default", tiers=TIERS, markers=MARKERS)
-    assert "dev1 → dev2" in out
-    # one adoption row per marker, with both binding columns
-    assert "🏷 `cli` adoption" in out
-    assert "## Tier: bare" in out
-
-
 def test_report_payload_and_render(data_root):
-    """`ag report` over mock data: generic payload + data actually embedded in HTML."""
-    from ag import report
+    """`agent-eval report` over mock data: generic payload + data actually embedded in HTML."""
+    from ae import report
 
     run_suite("v1", profile=PROFILE, runner="mock", tasks=["classify-sentiment"],
               tiers=["bare", "skill"], runs=2, live=False, name="my run")
@@ -107,5 +86,10 @@ def test_report_payload_and_render(data_root):
     out.mkdir(parents=True, exist_ok=True)
     (out / "plotly.min.js").write_text("/*stub*/")
     html = report.render(payload, out).read_text()
-    assert "__AG_DATA__" not in html and "__ISTH_DATA__" not in html  # placeholder substituted
-    assert '"profile":"mock"' in html.replace(" ", "")                # data embedded
+    # index.html stays small: it loads the payload from data.js, not inline (so a
+    # large report doesn't get LFS'd by the Hub and served as a download).
+    assert '<script src="data.js">' in html                # data loaded externally
+    assert '"profile":"mock"' not in html.replace(" ", "")  # payload NOT inlined
+    data_js = (out / "data.js").read_text()
+    assert data_js.startswith("window.__AG_DATA__=")
+    assert '"profile":"mock"' in data_js.replace(" ", "")  # payload written to data.js

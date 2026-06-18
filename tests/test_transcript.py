@@ -1,6 +1,6 @@
 import json
 
-from ag.transcript import parse_transcript
+from ae.transcript import parse_transcript
 
 
 def _write(tmp_path, lines):

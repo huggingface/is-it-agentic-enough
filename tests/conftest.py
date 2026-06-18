@@ -1,7 +1,7 @@
 """Shared test fixtures.
 
-The harness keys its data root off ``AG_DATA_DIR`` (read live in
-``ag.paths.state_root``), so each test gets an isolated tmp root via the
+The harness keys its data root off ``AE_DATA_DIR`` (read live in
+``ae.paths.state_root``), so each test gets an isolated tmp root via the
 ``data_root`` fixture. ``write_run`` lays down a synthetic run (transcript +
 meta) in the real on-disk layout so the read-side can be tested without running
 an agent.
@@ -9,7 +9,6 @@ an agent.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -18,7 +17,7 @@ import pytest
 @pytest.fixture
 def data_root(tmp_path, monkeypatch) -> Path:
     """Isolate all harness state (results/, traces/, …) under a tmp dir."""
-    monkeypatch.setenv("AG_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("AE_DATA_DIR", str(tmp_path))
     return tmp_path
 
 
@@ -48,12 +47,12 @@ def _events(*, tool_calls=(), final="done", final_error=False):
 
 @pytest.fixture
 def write_run(data_root):
-    """Factory: write a synthetic run as one line in its cell file
-    ``results/<binding>/<harness>/<model_id>.jsonl`` via the store, and return
-    the :class:`ag.store.RunRecord` (the read-side now parses records, not files)."""
-    from ag import store
+    """Factory: write a synthetic run as one line in its task shard
+    ``results/<binding>/<harness>/<model_id>/<task>.jsonl`` via the store, and return
+    the :class:`ae.store.RunRecord` (the read-side now parses records, not files)."""
+    from ae import store
 
-    def _write(binding, tier, task, run=1, *, ns="claude/default",
+    def _write(binding, tier, task, run=1, *, ns="pi/default",
                tool_calls=(), final="done", final_error=False,
                status="ok", exit_code=0, elapsed=12.0,
                tokens=None):

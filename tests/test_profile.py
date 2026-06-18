@@ -1,6 +1,6 @@
 import pytest
 
-from ag.profile import BuiltEnv, get_profile
+from ae.profile import BuiltEnv, get_profile
 
 
 def test_registry_has_builtins():
@@ -28,7 +28,15 @@ def test_transformers_agent_assets_only_for_skill(tmp_path):
     built = BuiltEnv(binding="x", python=tmp_path, available_tiers=["bare", "clone", "skill"], cfg_dir=tmp_path)
     assert p.agent_assets(built, "bare") == {}
     assets = p.agent_assets(built, "skill")
-    assert "plugin_dir" in assets and "skill_dir" in assets
+    assert set(assets) == {"skill_dir"}  # pi --skill; the claude plugin_dir is gone
+
+
+def test_profiles_define_tasks():
+    tasks = get_profile("transformers").tasks()
+    assert "classify-sentiment" in tasks
+    assert tasks["classify-sentiment"]["expected"] == "positive"
+    # mock reuses the transformers suite (like TIERS / MARKERS)
+    assert get_profile("mock").tasks() == tasks
 
 
 def test_mock_profile_is_instant_and_self_contained(tmp_path):

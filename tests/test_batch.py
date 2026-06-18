@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from ag import batch
+from ae import batch
 
 
 def _write(tmp_path, text):
@@ -16,7 +16,7 @@ profile: transformers
 tasks: [classify-sentiment, tokenize-count]
 flavor: t4-small
 models:
-  - claude
+  - {model: smoke, runner: mock}
   - Qwen/Qwen3-Coder-Next
   - {model: custom-thing, runner: pi}
 revisions:
@@ -36,9 +36,9 @@ def test_expand_matrix_and_runner_resolution(tmp_path):
     cells = batch.expand(cfg)
     assert len(cells) == 3 * 2  # 3 models × 2 revisions
 
-    # claude → local (runner claude, default model)
-    claude_cells = [c for c in cells if c.runner == "claude"]
-    assert len(claude_cells) == 2 and all(c.model is None for c in claude_cells)
+    # explicit mock runner → runs locally
+    mock_cells = [c for c in cells if c.runner == "mock"]
+    assert len(mock_cells) == 2 and all(c.model == "smoke" for c in mock_cells)
 
     # "<org>/<id>" → pi
     qwen = [c for c in cells if c.model == "Qwen/Qwen3-Coder-Next"]
@@ -65,7 +65,7 @@ def test_plan_lines_content(tmp_path):
     cfg = batch.load_batch(_write(tmp_path, CONFIG))
     txt = batch.plan_lines(cfg, batch.expand(cfg))
     assert "6 cells (3 models × 2 revisions)" in txt
-    assert "claude:default @ v5.8.0" in txt
+    assert "mock:smoke @ v5.8.0" in txt
     assert "pi:Qwen/Qwen3-Coder-Next @ w/ CLI + Skill" in txt
     assert "→ local" in txt and "→ HF Job (flavor=t4-small)" in txt
 
@@ -100,27 +100,48 @@ def test_force_flag_overrides_cfg(tmp_path):
     assert batch._cell_args(cfg, cell, force=True).force_rerun is True  # --force-rerun wins
 
 
-def test_skip_complete_predicate():
+def test_expected_run_keys():
     all_tasks = {"a": {}, "b": {"runs": 2}}          # a → default 3 runs, b → 2
     cfg = {"tasks": ["a", "b"], "tiers": ["bare", "clone"]}
     expected = batch._expected_run_keys(cfg, {"bare", "clone"}, all_tasks)
     assert len(expected) == 2 * (3 + 2)               # 2 tiers × (3 + 2) runs
+    # explicit batch-level `runs:` overrides every per-task default
+    pinned = batch._expected_run_keys({**cfg, "runs": 1}, {"bare", "clone"}, all_tasks)
+    assert len(pinned) == 2 * 2                        # 2 tiers × 2 tasks × 1 run
 
-    assert batch._is_complete(expected, {"bare", "clone"}, cfg, all_tasks) is True
-    assert batch._is_complete(expected | {("bare", "a", 99)}, {"bare", "clone"}, cfg, all_tasks) is True
-    # missing one run → not complete
-    short = expected - {("clone", "b", 2)}
-    assert batch._is_complete(short, {"bare", "clone"}, cfg, all_tasks) is False
-    # empty present / empty tiers → never complete (never-run cell is launched)
-    assert batch._is_complete(set(), {"bare"}, cfg, all_tasks) is False
-    assert batch._is_complete(expected, set(), cfg, all_tasks) is False
+
+def test_cell_status_local_reads_store(data_root, write_run):
+    """skip-complete classifies cells against the local store (post `--pull`),
+    with no network — complete when every expected run is present locally."""
+    from ae.profiles.mock import _safe
+
+    b = _safe("dev1")
+    cfg = {"profile": "mock", "tasks": ["classify-sentiment"], "tiers": ["bare"],
+           "runs": 2, "models": ["m"], "revisions": ["dev1"]}
+    cells = batch.expand(cfg)                       # 1 model × 1 revision
+    assert len(cells) == 1
+
+    # nothing seeded → not complete, not partial → it will be launched
+    complete, partial = batch._cell_status_local(cfg, cells)
+    assert not complete and not partial
+
+    # one of two expected runs present → partial (a prior job likely died)
+    write_run(b, "bare", "classify-sentiment", run=1, ns="pi/m")
+    complete, partial = batch._cell_status_local(cfg, cells)
+    assert not complete and cells[0].label() in partial
+
+    # both expected runs present → complete (skip launching)
+    write_run(b, "bare", "classify-sentiment", run=2, ns="pi/m")
+    complete, partial = batch._cell_status_local(cfg, cells)
+    assert cells[0].label() in complete and not partial
 
 
 def test_runs_for_explicit_overrides_per_task():
-    all_tasks = {"a": {"runs": 7}}
-    assert batch._runs_for({"runs": 2}, "a", all_tasks) == 2      # --runs / cfg runs wins
-    assert batch._runs_for({}, "a", all_tasks) == 7              # else per-task
-    assert batch._runs_for({}, "z", all_tasks) == 3              # else default 3
+    from ae.run_task import runs_for
+
+    assert runs_for(2, {"runs": 7}) == 2      # explicit --runs / cfg runs wins
+    assert runs_for(None, {"runs": 7}) == 7   # else per-task `runs:`
+    assert runs_for(None, None) == 3          # else default 3
 
 
 def test_status_without_state_file_errors(tmp_path, data_root):

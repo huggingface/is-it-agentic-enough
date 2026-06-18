@@ -21,19 +21,20 @@ tasks: [
 flavor: t4-small
 
 models:
-  - MiniMaxAI/MiniMax-M2.7
-  - Qwen/Qwen3-Coder-Next
-  - Qwen/Qwen3.5-9B
-  - Qwen/Qwen3.6-35B-A3B
-  - google/gemma-4-31B-it
-  - moonshotai/Kimi-K2.6
-  - zai-org/GLM-5.1
-  - Qwen/Qwen3-14B
-  - Qwen/Qwen3-4B-Instruct-2507
+  - Qwen3-0.6B
+#  - MiniMaxAI/MiniMax-M2.7
+#  - Qwen/Qwen3-Coder-Next
+#  - Qwen/Qwen3.5-9B
+#  - Qwen/Qwen3.6-35B-A3B
+#  - google/gemma-4-31B-it
+#  - moonshotai/Kimi-K2.6
+#  - zai-org/GLM-5.1
+#  - Qwen/Qwen3-14B
+#  - Qwen/Qwen3-4B-Instruct-2507
 
 revisions:
 #  - v5.8.0
 #  - v5.9.0
-  - v5.10.2
-#  - v5.11.0
+#  - v5.10.2
+  - v5.11.0
 #  - {ref: 4d15b215f3, name: "w/ CLI + Skill"}

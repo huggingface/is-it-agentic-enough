@@ -1,6 +1,6 @@
 import pytest
 
-from ag import matcher
+from ae import matcher
 
 
 def test_substring_case_insensitive():
