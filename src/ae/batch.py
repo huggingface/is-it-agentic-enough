@@ -1,0 +1,484 @@
+"""``agent-eval batch <file.yaml>`` — launch a model × revision matrix of suites.
+
+The YAML declares the profile, the models, and the revisions (with optional
+display names); ``agent-eval`` expands the full matrix and, with ``--submit``,
+launches each cell as a detached HF Job (tracked by id), recording job ids to
+``batches/<name>.json``. With ``--watch`` it then polls the jobs until they
+finish and reports any that didn't complete. (A ``mock``-runner cell runs
+locally instead — for UI / pipeline testing.)
+
+Dry-run by default: ``agent-eval batch m.yaml`` prints the matrix and the plan without
+launching anything.
+
+Example ``m.yaml``::
+
+    profile: transformers
+    runner: pi                       # default for bare model ids below
+    tasks: [classify-sentiment, extract-entities, tokenize-count]
+    flavor: t4-small
+    models:
+      - nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16
+      - Qwen/Qwen3-Coder-Next
+    revisions:
+      - v5.8.0
+      - v5.9.0
+      - {ref: 4d15b215f3, name: "w/ CLI + Skill"}
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from types import SimpleNamespace
+
+import yaml
+
+from .job import DEFAULT_BUCKET, DEFAULT_FLAVOR, DEFAULT_IMAGE, DEFAULT_TIMEOUT
+from .log import log
+from .paths import state_root
+
+# Job stages that mean "stopped" (matched case-insensitively; superset for safety).
+_TERMINAL = {"COMPLETED", "ERROR", "FAILED", "CANCELED", "CANCELLED", "DELETED"}
+
+
+@dataclass
+class Cell:
+    profile: str
+    ref: str
+    name: str | None
+    model: str | None
+    runner: str
+    task: str | None = None   # set when splitting one job per task (--per-task)
+
+    def label(self) -> str:
+        base = f"{self.runner}:{self.model or 'default'} @ {self.name or self.ref}"
+        return f"{base} · {self.task}" if self.task else base
+
+
+def _as_revision(item) -> tuple[str, str | None]:
+    if isinstance(item, dict):
+        ref = item.get("ref") or item.get("revision")
+        if not ref:
+            raise SystemExit(f"revision entry missing `ref`: {item!r}")
+        return str(ref), item.get("name")
+    return str(item), None
+
+
+def _as_model(item, default_runner: str) -> tuple[str | None, str]:
+    """Resolve a models[] entry to ``(model, runner)``.
+
+    - ``"<org>/<id>"`` → ``(id, "pi")`` (HF-served via the pi runner)
+    - ``{model, runner}`` → explicit (e.g. ``{model: m, runner: mock}`` for local testing)
+    - any other bare string → ``(string, default_runner)``
+    """
+    if isinstance(item, dict):
+        return item.get("model"), item.get("runner", default_runner)
+    if "/" in item:
+        return item, "pi"
+    return item, default_runner
+
+
+def load_batch(path) -> dict:
+    cfg = yaml.safe_load(Path(path).read_text()) or {}
+    for key in ("profile", "models", "revisions"):
+        if not cfg.get(key):
+            raise SystemExit(f"{path}: missing required `{key}`")
+    return cfg
+
+
+def expand(cfg: dict, per_task: bool = False) -> list[Cell]:
+    """The job matrix. Default: one cell per (model × revision) running the whole
+    suite. ``per_task`` adds a task dimension — one cell per (model × revision ×
+    task) — so each task gets its own job (smaller, isolated, more parallel;
+    a failure on one task no longer blocks the rest). Order: models, revisions[, tasks]."""
+    default_runner = cfg.get("runner", "pi")
+    tasks = None
+    if per_task:
+        from .profile import get_profile
+        tasks = cfg.get("tasks") or list(get_profile(cfg["profile"]).tasks().keys())
+    cells: list[Cell] = []
+    for mitem in cfg["models"]:
+        model, runner = _as_model(mitem, default_runner)
+        for ritem in cfg["revisions"]:
+            ref, name = _as_revision(ritem)
+            if per_task:
+                for t in tasks:
+                    cells.append(Cell(cfg["profile"], ref, name, model, runner, t))
+            else:
+                cells.append(Cell(cfg["profile"], ref, name, model, runner))
+    return cells
+
+
+def _cell_args(cfg: dict, cell: Cell, force: bool = False) -> SimpleNamespace:
+    """A suite-args namespace for one cell (consumed by job/run_suite).
+
+    ``force`` (from ``--force-rerun``) overrides the YAML's ``force_rerun``."""
+    return SimpleNamespace(
+        profile=cell.profile, ref=cell.ref, name=cell.name, model=cell.model, runner=cell.runner,
+        tasks=[cell.task] if cell.task else cfg.get("tasks"), tiers=cfg.get("tiers"), runs=cfg.get("runs"),
+        max_tool_calls=cfg.get("max_tool_calls", 50),
+        force_rerun=force or cfg.get("force_rerun", False),
+        flavor=cfg.get("flavor", DEFAULT_FLAVOR), timeout=cfg.get("timeout", DEFAULT_TIMEOUT),
+        image=cfg.get("image", DEFAULT_IMAGE), bucket=cfg.get("bucket", DEFAULT_BUCKET),
+    )
+
+
+def plan_lines(cfg: dict, cells: list[Cell]) -> str:
+    matrix = f"{len(cfg['models'])} models × {len(cfg['revisions'])} revisions"
+    if any(c.task for c in cells):
+        matrix += f" × {len({c.task for c in cells})} tasks (one job per task)"
+    head = f"batch: profile={cfg['profile']}  {len(cells)} cells ({matrix})"
+    meta = (f"  tasks: {cfg.get('tasks') or '(all)'}   tiers: {cfg.get('tiers') or '(all)'}   "
+            f"runs: {cfg.get('runs') or 'per-task'}")
+    rows = []
+    for c in cells:
+        where = f"HF Job (flavor={cfg.get('flavor', DEFAULT_FLAVOR)})" if c.runner == "pi" else "local"
+        rows.append(f"  • {c.label():56} → {where}")
+    return "\n".join([head, meta, *rows])
+
+
+def _job_stage(api, jid: str) -> str:
+    """Current stage of a job, defensively (JobInfo.status may be a dict or obj)."""
+    try:
+        ji = api.inspect_job(job_id=jid)
+        st = getattr(ji, "status", None)
+        stage = st.get("stage") if isinstance(st, dict) else getattr(st, "stage", st)
+        return str(stage)
+    except Exception as e:  # noqa: BLE001
+        return f"inspect-error: {e}"
+
+
+def _is_terminal(stage: str) -> bool:
+    return stage.upper() in _TERMINAL or "error" in stage.lower()
+
+
+def _log_tail(api, jid: str, n: int = 30) -> list[str]:
+    """Best-effort last ``n`` log lines of a job (so a failure shows *why* inline
+    instead of making you run `hf jobs logs`)."""
+    try:
+        lines = [ln.rstrip() for ln in api.fetch_job_logs(job_id=jid, tail=n)]
+    except Exception as e:  # noqa: BLE001
+        return [f"(could not fetch logs: {e})"]
+    return lines[-n:]
+
+
+def _report_terminal(api, label: str, jid: str, stage: str) -> bool:
+    """Print a job's terminal status; on non-COMPLETED, also dump its log tail.
+    Returns True if it completed cleanly."""
+    ok = stage.upper() == "COMPLETED"
+    log(f"  {'✓' if ok else '✗'} {label}  [{stage}]")
+    if not ok:
+        log(f"    ↳ last log lines ({jid}):")
+        for ln in _log_tail(api, jid):
+            log(f"      {ln}")
+    return ok
+
+
+def _track(entries: list[tuple[str, str]], *, watch: bool, poll: int) -> list[tuple[str, str, str]]:
+    """``entries`` = ``[(label, job_id)]``. Snapshot (``watch=False``) prints each
+    job's current stage (dumping a log tail for terminal failures) and returns
+    ``[]``. ``watch=True`` polls until every job is terminal and returns
+    ``[(label, job_id, stage)]`` for the ones that did not COMPLETE."""
+    from huggingface_hub import HfApi
+
+    api = HfApi()
+    if not watch:
+        for label, jid in entries:
+            stage = _job_stage(api, jid)
+            if _is_terminal(stage):
+                _report_terminal(api, label, jid, stage)
+            else:
+                log(f"  … {label}  [{stage}]")
+        return []
+
+    pending = {jid: label for label, jid in entries}
+    bad: list[tuple[str, str, str]] = []
+    log(f"watching {len(pending)} job(s) (poll every {poll}s)…")
+    while pending:
+        time.sleep(poll)
+        for jid in list(pending):
+            stage = _job_stage(api, jid)
+            if _is_terminal(stage):
+                label = pending.pop(jid)
+                if not _report_terminal(api, label, jid, stage):
+                    bad.append((label, jid, stage))
+    return bad
+
+
+def _state_file(path) -> Path:
+    return state_root() / "batches" / f"{Path(path).stem}.json"
+
+
+def _status(path, *, watch: bool, poll: int) -> int:
+    sfile = _state_file(path)
+    if not sfile.exists():
+        log(f"no recorded jobs at {sfile} — run `agent-eval batch {path} --submit` first.")
+        return 1
+    entries = [(j["label"], j["job_id"]) for j in json.loads(sfile.read_text()).get("jobs", [])]
+    if not entries:
+        log(f"{sfile}: no jobs recorded.")
+        return 0
+    log(f"status of {len(entries)} job(s) from {sfile.name}:")
+    bad = _track(entries, watch=watch, poll=poll)
+    if bad:
+        log(f"⚠ {len(bad)} job(s) did not complete:")
+        for label, jid, st in bad:
+            log(f"  - {label}: {st}  (hf jobs logs {jid})")
+        return 1
+    return 0
+
+
+def _expected_run_keys(cfg: dict, tiers, all_tasks: dict, tasks=None) -> set:
+    """The ``(tier, task, run)`` triples a suite would produce for these tiers.
+
+    ``tasks`` overrides the batch's task set (used for per-task cells, which each
+    cover a single task)."""
+    from .run_task import runs_for
+
+    tasks = tasks or cfg.get("tasks") or list(all_tasks.keys())
+    return {(tier, t, r)
+            for tier in tiers for t in tasks
+            for r in range(1, runs_for(cfg.get("runs"), all_tasks.get(t)) + 1)}
+
+
+def _classify(cfg: dict, all_tasks: dict, targets: list, present: dict, avail: dict
+              ) -> tuple[dict[str, str], dict[str, str]]:
+    """Given the runs ``present`` per ``(binding, ns)`` and the tiers ``avail`` per
+    binding, classify each ``(cell, binding, ns)`` target as complete / partial."""
+    complete: dict[str, str] = {}
+    partial: dict[str, str] = {}
+    for cell, b, ns in targets:
+        exp_tiers = set(cfg["tiers"]) if cfg.get("tiers") else avail.get(b, set())
+        cell_tasks = [cell.task] if cell.task else None
+        expected = _expected_run_keys(cfg, exp_tiers, all_tasks, cell_tasks)
+        if not expected:
+            continue  # nothing known to expect yet → launch
+        have = len(expected & present.get((b, ns), set()))
+        if have >= len(expected):
+            complete[cell.label()] = f"{len(expected)} runs present"
+        elif have > 0:
+            partial[cell.label()] = f"{have}/{len(expected)} runs"
+    return complete, partial
+
+
+def _cell_status_local(cfg: dict, cells: list[Cell]) -> tuple[dict[str, str], dict[str, str]]:
+    """Classify cells against the **local** results store (what ``agent-eval report --pull``
+    mirrors from the bucket) — no network, no download. Used whenever local results
+    exist; the bucket is consulted only on a machine that never pulled."""
+    from . import store
+    from .paths import results_label
+    from .profile import get_profile
+
+    profile = get_profile(cfg["profile"])
+    all_tasks = profile.tasks()
+    bind: dict[str, str | None] = {}
+
+    def binding_of(ref: str):
+        if ref not in bind:
+            try:
+                bind[ref] = profile.expand_bindings([ref])[0]
+            except Exception:  # noqa: BLE001
+                bind[ref] = None
+        return bind[ref]
+
+    targets: list[tuple[Cell, str, str]] = []
+    present: dict[tuple[str, str], set] = {}
+    avail: dict[str, set] = {}
+    for c in cells:
+        b = binding_of(c.ref)
+        if not b:
+            continue
+        ns = results_label(c.runner, c.model)
+        targets.append((c, b, ns))
+        if (b, ns) not in present:
+            keys = {r.key for r in store.list_runs(b, ns)}
+            present[(b, ns)] = keys
+            avail.setdefault(b, set()).update(tier for (tier, _, _) in keys)
+    return _classify(cfg, all_tasks, targets, present, avail)
+
+
+def _cell_status(cfg: dict, cells: list[Cell], bucket: str) -> tuple[dict[str, str], dict[str, str]]:
+    """Inspect the bucket and classify each cell against its expected runs.
+
+    Returns ``(complete, partial)`` keyed by ``cell.label()``:
+    - ``complete`` — every expected run already present (skip launching);
+    - ``partial``  — some but not all present (a prior job likely died; relaunch
+      to fill the gaps).
+    Downloads only the shards for the models/revisions in the batch. Degrades to
+    ``({}, {})`` (launch all) on any error so this never silently drops a needed
+    run. Prefer :func:`_cell_status_local` when a local mirror exists."""
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from .paths import results_label
+    from .profile import get_profile
+
+    try:
+        from huggingface_hub import HfApi
+    except Exception:  # noqa: BLE001
+        return {}, {}
+
+    profile = get_profile(cfg["profile"])
+    all_tasks = profile.tasks()
+
+    bind: dict[str, str | None] = {}
+
+    def binding_of(ref: str):
+        if ref not in bind:
+            try:
+                bind[ref] = profile.expand_bindings([ref])[0]
+            except Exception:  # noqa: BLE001
+                bind[ref] = None
+        return bind[ref]
+
+    targets: list[tuple[Cell, str, str]] = []  # (cell, binding, ns)
+    for c in cells:
+        b = binding_of(c.ref)
+        if b:
+            targets.append((c, b, results_label(c.runner, c.model)))
+    if not targets:
+        return {}, {}
+
+    api = HfApi()
+    try:
+        existing = {it.path: it for it in api.list_bucket_tree(bucket, prefix="results", recursive=True)
+                    if getattr(it, "type", None) == "file"}
+    except Exception as e:  # noqa: BLE001
+        log(f"  (skip-complete: could not read bucket {bucket}: {e}; launching everything)")
+        return {}, {}
+
+    # A model's runs are spread across per-task shards (results/<b>/<ns>/<task>.jsonl);
+    # pre-sharding data may still be a single bundle (results/<b>/<ns>.jsonl). Gather
+    # every remote file belonging to a model we're about to launch, download each once,
+    # and union their keys per (binding, ns).
+    models = {(b, ns) for _c, b, ns in targets}
+
+    def model_of(path: str):
+        for b, ns in models:
+            if path == f"results/{b}/{ns}.jsonl" or path.startswith(f"results/{b}/{ns}/"):
+                return (b, ns)
+        return None
+
+    relevant = sorted(p for p in existing if model_of(p))
+    if not relevant:
+        return {}, {}
+
+    present: dict[tuple[str, str], set] = {}  # (binding, ns) -> (tier, task, run) keys
+    avail: dict[str, set] = {}                # binding -> tiers seen in the bucket
+    with tempfile.TemporaryDirectory() as td:
+        pairs = [(existing[p], Path(td) / f"{i}.jsonl") for i, p in enumerate(relevant)]
+        try:
+            api.download_bucket_files(bucket, pairs)
+        except Exception as e:  # noqa: BLE001
+            log(f"  (skip-complete: bucket download failed: {e}; launching everything)")
+            return {}, {}
+        for p, (_bf, local) in zip(relevant, pairs):
+            keys: set = set()
+            try:
+                for line in Path(local).read_text().splitlines():
+                    line = line.strip()
+                    if line:
+                        o = json.loads(line)
+                        keys.add((o.get("tier"), o.get("task"), int(o.get("run") or 0)))
+            except Exception:  # noqa: BLE001
+                keys = set()
+            m = model_of(p)
+            present.setdefault(m, set()).update(keys)
+            avail.setdefault(m[0], set()).update(tier for (tier, _, _) in keys)
+
+    return _classify(cfg, all_tasks, targets, present, avail)
+
+
+def run_batch(path, *, submit: bool = False, watch: bool = False, status: bool = False,
+              poll: int = 30, force: bool = False, skip_complete: bool = True,
+              per_task: bool = False) -> int:
+    if status:
+        return _status(path, watch=watch, poll=poll)
+
+    cfg = load_batch(path)
+    cells = expand(cfg, per_task=per_task or bool(cfg.get("per_task")))
+    log(plan_lines(cfg, cells))
+    forcing = force or cfg.get("force_rerun")
+    if forcing:
+        log("force-rerun: existing results for these cells will be recomputed, not skipped.")
+
+    complete: dict[str, str] = {}
+    if skip_complete and not forcing:
+        from . import store
+        if next(store.iter_cells(), None) is not None:
+            log("skip-complete: reading local results "
+                f"(run `agent-eval report {cfg['profile']} --pull` to refresh them from the bucket)…")
+            complete, partial = _cell_status_local(cfg, cells)
+        else:
+            log("skip-complete: no local results — checking the bucket for already-completed cells…")
+            complete, partial = _cell_status(cfg, cells, cfg.get("bucket", DEFAULT_BUCKET))
+        if complete:
+            log(f"  ✓ {len(complete)}/{len(cells)} already complete — skipping:")
+            for lbl, msg in complete.items():
+                log(f"      {lbl}  ({msg})")
+        if partial:
+            log(f"  ↻ {len(partial)} cell(s) only partially present (a prior job was likely killed) — relaunching:")
+            for lbl, msg in partial.items():
+                log(f"      {lbl}  ({msg} present)")
+        to_launch = len(cells) - len(complete)
+        log(f"  → launching {to_launch} cell(s)" + (" (none — all complete)" if not to_launch else ""))
+
+    if not submit:
+        log("DRY RUN — re-run with --submit to launch (pi cells → HF Jobs, mock cells → local).")
+        return 0
+
+    from .job import submit_job_api
+    from .profile import get_profile
+    from .run_suite import run_suite
+
+    submitted: list[tuple[Cell, str]] = []  # (cell, job_id)
+    failures: list[str] = []
+    for c in cells:
+        if c.label() in complete:
+            continue
+        args = _cell_args(cfg, c, force)
+        try:
+            if c.runner == "pi":
+                ji = submit_job_api(args)
+                submitted.append((c, ji.id))
+                log(f"  ▶ submitted {c.label()}  job={ji.id}  {getattr(ji, 'url', '') or ''}")
+            else:
+                log(f"  ▶ running locally: {c.label()} …")
+                run_suite(
+                    c.ref, profile=get_profile(c.profile), runner=c.runner, model=c.model,
+                    tasks=args.tasks, tiers=args.tiers, runs=args.runs,
+                    max_tool_calls=args.max_tool_calls, live=False, name=c.name,
+                    skip_existing=not args.force_rerun,
+                )
+        except Exception as e:  # noqa: BLE001
+            failures.append(f"{c.label()}: {e}")
+            log(f"  ! {c.label()}  {e}")
+
+    if submitted:
+        _state_file(path).parent.mkdir(parents=True, exist_ok=True)
+        _state_file(path).write_text(json.dumps(
+            {"profile": cfg["profile"],
+             "jobs": [{"label": c.label(), "ref": c.ref, "name": c.name,
+                       "model": c.model, "job_id": jid} for c, jid in submitted]},
+            indent=2,
+        ))
+        log(f"recorded {len(submitted)} job(s) → {_state_file(path)}")
+
+    if watch and submitted:
+        failures += [f"{label}: {st} (hf jobs logs {jid})"
+                     for label, jid, st in _track([(c.label(), jid) for c, jid in submitted],
+                                                   watch=True, poll=poll)]
+    elif submitted:
+        log(f"track with `agent-eval batch {path} --status` (snapshot) or `--status --watch`; "
+            f"then `agent-eval report {cfg['profile']} --pull`.")
+
+    if failures:
+        log(f"⚠ {len(failures)} issue(s):")
+        for why in failures:
+            log(f"  - {why}")
+        return 1
+    log("✓ batch complete.")
+    return 0
