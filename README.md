@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="100%" alt="agent-eval report" src="https://github.com/user-attachments/assets/f8d3962d-cd28-4891-90e1-dc54ad841989" />
+<img width="2882" height="1446" alt="image" src="https://github.com/user-attachments/assets/84465536-8ed7-4293-a956-e7d33d779afb" />
 </p>
 
 # `agent-eval` — is your library *agentic enough*?
