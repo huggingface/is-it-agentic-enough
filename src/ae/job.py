@@ -31,7 +31,7 @@ DEFAULT_FLAVOR = "t4-medium"
 DEFAULT_TIMEOUT = "4h"
 DEFAULT_BUCKET = "lysandre/transformers-agentic-use"
 
-AG_GIT = "https://github.com/huggingface/is-transformers-agentic-enough"
+AG_GIT = "https://github.com/huggingface/is-it-agentic-enough"
 # Fallback target repo when the profile doesn't declare `repo_git` (the
 # historical behaviour — the harness predates multi-profile support).
 DEFAULT_TARGET_GIT = "https://github.com/huggingface/transformers"

@@ -24,8 +24,8 @@ explored in the report it builds.
 ## Install
 
 ```bash
-git clone https://github.com/huggingface/is-transformers-agentic-enough
-cd is-transformers-agentic-enough
+git clone https://github.com/huggingface/is-it-agentic-enough
+cd is-it-agentic-enough
 uv venv --python 3.13 .env
 uv pip install --python .env/bin/python -e .
 ```
