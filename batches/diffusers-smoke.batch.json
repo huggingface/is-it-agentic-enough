@@ -1,0 +1,12 @@
+{
+  "profile": "diffusers",
+  "jobs": [
+    {
+      "label": "pi:Qwen/Qwen3-4B-Instruct-2507 @ w/ agentic CLI",
+      "ref": "6afdfd9f4",
+      "name": "w/ agentic CLI",
+      "model": "Qwen/Qwen3-4B-Instruct-2507",
+      "job_id": "6a8bf6f873304676c8ecbcbc"
+    }
+  ]
+}

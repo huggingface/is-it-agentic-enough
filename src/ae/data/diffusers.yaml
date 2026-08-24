@@ -23,14 +23,21 @@ tasks:
   #     Answers come from the pipeline class's __call__ signature, so they
   #     are stable across the revisions being compared. ---
 
+  # Every schema prompt requires verifying against the actual pipeline
+  # definition: in the smoke test, a 4B model answered from memory on every
+  # tier (and was wrong — SDXL guidance_scale is 5.0, not the 7.5 it guessed).
+  # The instruction closes that loophole: the task only measures tool adoption
+  # if the answer requires the tool.
+
   - id: schema-sdxl-steps
     category: atomic
     expected: "50"
     runs: 5
     prompt: |
       I want to call the stabilityai/stable-diffusion-xl-base-1.0 pipeline.
-      Before writing any code, find out what its __call__ signature accepts:
-      what is the default value of num_inference_steps? Report just the number.
+      Verify against the actual pipeline definition (not from memory) what its
+      __call__ signature accepts: what is the default value of
+      num_inference_steps? Report just the number.
 
   - id: schema-sdxl-guidance
     category: atomic
@@ -38,15 +45,17 @@ tasks:
     runs: 5
     prompt: |
       I want to call the stabilityai/stable-diffusion-xl-base-1.0 pipeline.
-      What is the default value of its guidance_scale parameter? Report just
-      the number.
+      Verify against the actual pipeline definition (not from memory): what is
+      the default value of its guidance_scale parameter? Report just the
+      number.
 
   - id: schema-sd14-guidance
     category: atomic
     expected: "7.5"
     runs: 5
     prompt: |
-      I want to call the CompVis/stable-diffusion-v1-4 pipeline. What is the
+      I want to call the CompVis/stable-diffusion-v1-4 pipeline. Verify
+      against the actual pipeline definition (not from memory): what is the
       default value of its guidance_scale parameter? Report just the number.
 
   - id: schema-inpaint-mask
@@ -55,7 +64,8 @@ tasks:
     runs: 5
     prompt: |
       I want to inpaint with the stabilityai/stable-diffusion-2-inpainting
-      pipeline. What is the name of the parameter I pass the mask to? Report
+      pipeline. Verify against the actual pipeline definition (not from
+      memory): what is the name of the parameter I pass the mask to? Report
       just the parameter name.
 
   # --- generation (behaviour-only; open-ended output, no exact match) ---

@@ -1,0 +1,20 @@
+# Stage 1 — smoke test of the diffusers profile on HF Jobs.
+# One small model, one revision (the "after" state, all three tiers available),
+# the two cheapest tasks (schema introspection: no GPU compute, no weights),
+# a single run each. Validates the full pipeline: bootstrap clone of the
+# harness, per-binding env build inside the container, pi runner, suite,
+# per-run mirror to the bucket.
+
+profile: diffusers
+
+tasks: [schema-sdxl-steps, schema-sdxl-guidance]
+runs: 1
+
+flavor: t4-small
+bucket: lysandre/diffusers-agentic-use
+
+models:
+  - Qwen/Qwen3-4B-Instruct-2507
+
+revisions:
+  - {ref: 6afdfd9f4, name: "w/ agentic CLI"}
