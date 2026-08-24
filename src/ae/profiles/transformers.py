@@ -1,9 +1,10 @@
 """The ``transformers`` profile: the original study, expressed as a profile.
 
 Binding = a git revision of ``transformers``. Tiers = the historical
-``bare`` / ``clone`` / ``skill`` discovery conditions. Delegates to the existing
-machinery (`setup_commit`, `run_task` workspace helpers) so there is one
-implementation of each behavior.
+``bare`` / ``clone`` / ``skill`` discovery conditions. Delegates to the generic
+repo machinery (`setup_repo`) for the per-binding sandbox; the skill is
+*derived* from the install's manifest (`build_skill`), unlike repos that ship
+one in-tree.
 """
 
 from __future__ import annotations
@@ -13,11 +14,38 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 
+from ..log import log
+
 from ..markers import Marker
 from ..paths import configs_dir, package_data_path, transformers_src, workspaces_dir
 from ..profile import BuiltEnv, Profile, register
 
 TIERS = ("bare", "clone", "skill")
+
+# Extra deps the task code needs on top of the editable transformers install.
+PINNED_DEPS = [
+    "torch",
+    "torchaudio",
+    "pillow",
+    "librosa",
+    "scipy",
+    "accelerate",
+    "huggingface_hub",
+]
+
+
+def _build_skill(py: Path, worktree: Path, plugin_dir: Path) -> bool:
+    """Render the skill from the install's derived manifest (unavailable on
+    revisions that predate the skill-derivation effort)."""
+    from ..build_skill import build as build_skill_plugin
+
+    if (plugin_dir / "skills" / "transformers" / "SKILL.md").exists():
+        return True
+    log("building SKILL.md from derived manifest")
+    available = build_skill_plugin(py, plugin_dir)
+    if not available:
+        log("  (skill-derivation unavailable at this commit; skipping)")
+    return available
 
 
 @lru_cache(maxsize=1)
@@ -54,25 +82,37 @@ MARKERS = [
 
 class TransformersProfile(Profile):
     name = "transformers"
+    # Git URL of the repo under test — what HF Jobs clone in their bootstrap.
+    repo_git = "https://github.com/huggingface/transformers"
 
     def expand_bindings(self, spec: list[str]) -> list[str]:
         """Expand ``A..B..C`` ranges and resolve branch/tag/SHA tokens to unique
         10-char short SHAs (the canonical transformers binding id)."""
         from ..profile import expand_spec
-        from ..setup_commit import resolve_sha
+        from ..setup_repo import resolve_sha
+
+        src = transformers_src()
 
         def short_sha(ref: str) -> str:
             is_sha = len(ref) >= 10 and all(c in "0123456789abcdef" for c in ref.lower())
-            return ref[:10] if is_sha else resolve_sha(ref)[:10]
+            return ref[:10] if is_sha else resolve_sha(ref, src)[:10]
 
         return expand_spec(spec, short_sha)
 
     def build(self, ref: str, *, name: str | None = None) -> BuiltEnv:
-        from ..setup_commit import record_ref, resolve_sha, setup
+        from ..setup_repo import record_ref, resolve_sha, setup
 
-        sha = resolve_sha(ref)
-        record_ref(ref, sha, name, profile="transformers")  # label the binding: branch/tag/commit + optional title
-        info = setup(ref)
+        src = transformers_src()
+        sha = resolve_sha(ref, src)
+        record_ref(ref, sha, name, profile="transformers", src=src)  # label the binding: branch/tag/commit + optional title
+        info = setup(
+            ref,
+            src=src,
+            profile="transformers",
+            package="transformers",
+            pinned_deps=PINNED_DEPS,
+            skill_builder=_build_skill,
+        )
         short = info["short"]
         tiers = ["bare", "clone"] + (["skill"] if info["skill_available"] else [])
         return BuiltEnv(
@@ -129,6 +169,12 @@ class TransformersProfile(Profile):
 
     def tasks(self) -> dict[str, dict]:
         return tasks()
+
+    def cleanup(self, ref: str) -> None:
+        """Remove this binding's cached sandbox (worktree + venv + plugin)."""
+        from ..setup_repo import cleanup
+
+        cleanup(ref, transformers_src())
 
 
 register(TransformersProfile())

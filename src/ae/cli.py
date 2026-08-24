@@ -20,8 +20,9 @@ def _cmd_setup(args: argparse.Namespace) -> int:
 
     p = get_profile(args.profile)
     if args.remove:
-        from .setup_commit import cleanup  # transformers-specific teardown
-
+        cleanup = getattr(p, "cleanup", None)
+        if cleanup is None:
+            raise SystemExit(f"profile {p.name!r} has no cached environment to remove.")
         cleanup(args.ref)
     else:
         p.build(args.ref)
@@ -124,7 +125,9 @@ _PROFILE_HELP = (
     "Environment profile — what the agent runs inside and the comparison axis "
     "(it dictates everything, including the task set; the revision only varies "
     "within it). `transformers` builds a git worktree of transformers at each "
-    "revision (tiers bare/clone/skill); `mock` is a fast fake for UI / testing."
+    "revision (tiers bare/clone/skill); `diffusers` does the same for diffusers "
+    "(its skill tier ships in-repo at .ai/skills/diffusers-cli/); `mock` is a "
+    "fast fake for UI / testing."
 )
 
 

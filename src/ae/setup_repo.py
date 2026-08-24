@@ -1,10 +1,18 @@
-"""Per-commit cache management.
+"""Per-binding sandbox management, generalized across target repos.
 
-For a given ref (sha, branch, tag) creates:
-    configs/<short-sha>/worktree/   git worktree of transformers @ sha
-    configs/<short-sha>/.venv/      uv venv with ``pip install -e worktree``
-    configs/<short-sha>/plugin/     Claude Code plugin dir (if skill derivable)
-    configs/<short-sha>/.ready      sentinel
+For a given ref (sha, branch, tag) of any target repo (``transformers``,
+``diffusers``, …) creates::
+
+    <cfg_dir>/worktree/   git worktree of the repo @ sha
+    <cfg_dir>/.venv/      uv venv with ``pip install -e worktree`` + pinned deps
+    <cfg_dir>/plugin/     Agent-Skills plugin dir (if the profile's skill
+                          builder reports one available at this binding)
+    <cfg_dir>/.ready      sentinel
+
+The profile supplies what differs between libraries: the repo root, the
+importable package name, extra pinned deps, and a ``skill_builder`` that
+places the skill for the binding under ``<cfg_dir>/plugin/skills/<name>/``
+(transformers derives one from a manifest; diffusers ships one in-repo).
 """
 
 from __future__ import annotations
@@ -12,35 +20,20 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Callable
 
-from .build_skill import build as build_skill_plugin
 from .log import log
-from .paths import configs_dir, results_dir, transformers_src
-
-
-PINNED_DEPS = [
-    "torch",
-    "torchaudio",
-    "pillow",
-    "librosa",
-    "scipy",
-    "accelerate",
-    "huggingface_hub",
-]
+from .paths import configs_dir, results_dir
 
 
 def _looks_like_sha(ref: str) -> bool:
     return len(ref) >= 7 and all(c in "0123456789abcdef" for c in ref.lower())
 
 
-def _git_ref_exists(refname: str) -> bool:
-    try:
-        src = str(transformers_src())
-    except SystemExit:
-        return False
+def _git_ref_exists(refname: str, src: Path) -> bool:
     return (
         subprocess.run(
-            ["git", "-C", src, "show-ref", "--verify", "--quiet", refname],
+            ["git", "-C", str(src), "show-ref", "--verify", "--quiet", refname],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         ).returncode
@@ -48,7 +41,7 @@ def _git_ref_exists(refname: str) -> bool:
     )
 
 
-def classify_ref(ref: str) -> dict:
+def classify_ref(ref: str, src: Path) -> dict:
     """What kind of ref the user asked to test: ``branch`` | ``tag`` | ``commit``.
 
     Tags are checked before branches (a release tag is the more meaningful
@@ -57,12 +50,12 @@ def classify_ref(ref: str) -> dict:
     """
     if _looks_like_sha(ref) or ref == "HEAD" or any(t in ref for t in ("~", "^", "@{")):
         kind = "commit"
-    elif _git_ref_exists(f"refs/tags/{ref}"):
+    elif _git_ref_exists(f"refs/tags/{ref}", src):
         kind = "tag"
     elif (
-        _git_ref_exists(f"refs/heads/{ref}")
-        or _git_ref_exists(f"refs/remotes/origin/{ref}")
-        or _git_ref_exists(f"refs/remotes/{ref}")
+        _git_ref_exists(f"refs/heads/{ref}", src)
+        or _git_ref_exists(f"refs/remotes/origin/{ref}", src)
+        or _git_ref_exists(f"refs/remotes/{ref}", src)
     ):
         kind = "branch"
     else:
@@ -70,7 +63,8 @@ def classify_ref(ref: str) -> dict:
     return {"ref": ref, "kind": kind}
 
 
-def record_ref(ref: str, sha: str, name: str | None = None, profile: str = "transformers") -> None:
+def record_ref(ref: str, sha: str, name: str | None = None, profile: str = "transformers",
+               src: Path | None = None) -> None:
     """Persist what the commit was tested *as* to ``results/<short>/ref.json``
     so the label travels with the results (and into the bucket / report).
 
@@ -80,10 +74,16 @@ def record_ref(ref: str, sha: str, name: str | None = None, profile: str = "tran
       existing title is kept.
     - ``profile`` records which profile produced the binding so the report can
       scope to one profile (e.g. keep mock runs out of the transformers report).
+
+    ``src`` is the target repo used to classify the ref; when omitted the
+    existing marker (if any) is trusted.
     """
     import json
 
-    info = classify_ref(ref)
+    if src is not None:
+        info = classify_ref(ref, src)
+    else:
+        info = {"ref": ref, "kind": "commit"}
     path = results_dir(sha[:10]) / "ref.json"
     try:
         existing = json.loads(path.read_text())
@@ -108,13 +108,12 @@ def suggest_refs(ref: str, names: list[str], n: int = 3) -> list[str]:
     return (close + contains)[:n]
 
 
-def _local_ref_names() -> list[str]:
-    """Tag + branch names known to the local transformers checkout."""
-    src = str(transformers_src())
+def _local_ref_names(src: Path) -> list[str]:
+    """Tag + branch names known to the local checkout of ``src``."""
     names: list[str] = []
     for args in (["tag", "--list"], ["branch", "-a", "--format=%(refname:short)"]):
         try:
-            out = subprocess.check_output(["git", "-C", src, *args], text=True)
+            out = subprocess.check_output(["git", "-C", str(src), *args], text=True)
         except subprocess.CalledProcessError:
             continue
         for line in out.splitlines():
@@ -124,19 +123,18 @@ def _local_ref_names() -> list[str]:
     return sorted(set(names))
 
 
-def resolve_sha(ref: str) -> str:
-    src = str(transformers_src())
+def resolve_sha(ref: str, src: Path) -> str:
     proc = subprocess.run(
-        ["git", "-C", src, "rev-parse", ref],
+        ["git", "-C", str(src), "rev-parse", ref],
         text=True,
         capture_output=True,
     )
     if proc.returncode != 0:
-        sugg = suggest_refs(ref, _local_ref_names())
+        sugg = suggest_refs(ref, _local_ref_names(src))
         hint = (
             f" Did you mean: {', '.join(sugg)}?"
             if sugg
-            else " (If it's a brand-new branch, `git fetch` the transformers checkout first.)"
+            else f" (If it's a brand-new branch, `git fetch` the {src.name} checkout first.)"
         )
         raise SystemExit(f"`{ref}` is not a known commit, branch, or tag in {src}.{hint}")
     out = proc.stdout.strip()
@@ -150,12 +148,12 @@ def resolve_sha(ref: str) -> str:
     return out
 
 
-def _ensure_worktree(sha: str, dest: Path) -> None:
+def _ensure_worktree(sha: str, dest: Path, src: Path) -> None:
     if dest.exists():
         return
     log(f"git worktree add {dest.name} @ {sha[:10]}")
     subprocess.check_call(
-        ["git", "-C", str(transformers_src()), "worktree", "add", "--detach", str(dest), sha],
+        ["git", "-C", str(src), "worktree", "add", "--detach", str(dest), sha],
     )
 
 
@@ -167,10 +165,11 @@ def _ensure_venv(cfg_dir: Path) -> Path:
     return venv / "bin" / "python"
 
 
-def _ensure_install(py: Path, worktree: Path) -> None:
+def _ensure_install(py: Path, worktree: Path, package: str, pinned_deps: list[str]) -> None:
     try:
         out = subprocess.check_output(
-            [str(py), "-c", "import transformers, pathlib; print(pathlib.Path(transformers.__file__).parent)"],
+            [str(py), "-c",
+             f"import {package}, pathlib; print(pathlib.Path({package}.__file__).parent)"],
             text=True,
         ).strip()
         if out.startswith(str(worktree)):
@@ -180,31 +179,45 @@ def _ensure_install(py: Path, worktree: Path) -> None:
 
     log(f"pip install -e {worktree.name}  (may take a minute)")
     subprocess.check_call(["uv", "pip", "install", "--python", str(py), "-e", str(worktree)])
-    log(f"pip install deps {PINNED_DEPS}")
-    subprocess.check_call(["uv", "pip", "install", "--python", str(py), *PINNED_DEPS])
+    if pinned_deps:
+        log(f"pip install deps {pinned_deps}")
+        subprocess.check_call(["uv", "pip", "install", "--python", str(py), *pinned_deps])
 
 
-def setup(ref: str) -> dict:
-    sha = resolve_sha(ref)
+def setup(
+    ref: str,
+    *,
+    src: Path,
+    profile: str,
+    package: str,
+    pinned_deps: list[str] | None = None,
+    skill_builder: Callable[[Path, Path, Path], bool] | None = None,
+    cfg_dir: Path | None = None,
+) -> dict:
+    """Prepare (or reuse) the sandbox for one binding of ``src`` at ``ref``.
+
+    ``skill_builder(venv_python, worktree, plugin_dir) -> bool`` places the
+    binding's Agent Skill under ``<plugin_dir>/skills/<name>/`` and returns
+    whether the skill tier is usable at this binding. ``None`` means the
+    profile has no skill tier at all.
+    """
+    sha = resolve_sha(ref, src)
     short = sha[:10]
-    cfg_dir = configs_dir() / short
+    if cfg_dir is None:
+        cfg_dir = configs_dir() / short
     cfg_dir.mkdir(parents=True, exist_ok=True)
 
     worktree = cfg_dir / "worktree"
-    _ensure_worktree(sha, worktree)
+    _ensure_worktree(sha, worktree, src)
 
     py = _ensure_venv(cfg_dir)
-    _ensure_install(py, worktree)
+    _ensure_install(py, worktree, package, pinned_deps or [])
 
-    plugin_dir = cfg_dir / "plugin"
-    already_built = (plugin_dir / "skills" / "transformers" / "SKILL.md").exists()
-    if already_built:
-        skill_available = True
+    if skill_builder is None:
+        skill_available = False
     else:
-        log("building SKILL.md from derived manifest")
-        skill_available = build_skill_plugin(py, plugin_dir)
-        if not skill_available:
-            log("  (skill-derivation unavailable at this commit; skipping)")
+        plugin_dir = cfg_dir / "plugin"
+        skill_available = skill_builder(py, worktree, plugin_dir)
 
     (cfg_dir / ".ready").write_text(f"{sha}\n")
     info = {
@@ -212,23 +225,24 @@ def setup(ref: str) -> dict:
         "short": short,
         "worktree": str(worktree),
         "venv_python": str(py),
-        "plugin_dir": str(plugin_dir),
+        "plugin_dir": str(cfg_dir / "plugin"),
         "skill_available": skill_available,
     }
     log(f"✓ setup {short}   skill={'yes' if skill_available else 'no'}")
     return info
 
 
-def cleanup(ref: str) -> None:
-    sha = resolve_sha(ref)
+def cleanup(ref: str, src: Path, cfg_dir: Path | None = None) -> None:
+    sha = resolve_sha(ref, src)
     short = sha[:10]
-    cfg_dir = configs_dir() / short
+    if cfg_dir is None:
+        cfg_dir = configs_dir() / short
     if not cfg_dir.exists():
         return
     worktree = cfg_dir / "worktree"
     if worktree.exists():
         subprocess.check_call(
-            ["git", "-C", str(transformers_src()), "worktree", "remove", "--force", str(worktree)],
+            ["git", "-C", str(src), "worktree", "remove", "--force", str(worktree)],
         )
     shutil.rmtree(cfg_dir, ignore_errors=True)
     print(f"[cleanup] removed {short}")

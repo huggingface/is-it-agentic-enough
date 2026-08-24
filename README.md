@@ -30,9 +30,11 @@ uv venv --python 3.13 .env
 uv pip install --python .env/bin/python -e .
 ```
 
-The `transformers` profile expects a `transformers` checkout at `../transformers`
-(override with `AE_TRANSFORMERS_SRC`). Runtime state lands next to the cwd
-(override with `AE_DATA_DIR`).
+Each profile expects a checkout of its target repo next to the cwd:
+`../transformers` for the `transformers` profile (override with
+`AE_TRANSFORMERS_SRC`), `../diffusers` for the `diffusers` profile (override
+with `AE_DIFFUSERS_SRC`). Runtime state lands next to the cwd (override with
+`AE_DATA_DIR`).
 
 ## Commands
 

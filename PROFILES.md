@@ -6,9 +6,10 @@ environment-specific lives behind a profile: how to build a sandbox for a revisi
 what "assistance tiers" exist, how to seed the agent's workspace, which task suite
 to run, and which behaviors to track.
 
-Two profiles ship: `transformers` (the reference study) and `mock` (a fast fake for
-trying the UI). This document describes the contract and walks through the
-`transformers` profile as a worked example.
+Three profiles ship: `transformers` (the reference study), `diffusers` (is the
+agentic CLI helping diffusers?), and `mock` (a fast fake for trying the UI).
+This document describes the contract and walks through the `transformers`
+profile as a worked example.
 
 ## Vocabulary
 
@@ -105,16 +106,19 @@ class TransformersProfile(Profile):
 ### Build: prepare a sandbox per revision
 
 `build()` resolves the ref, records what it was tested as (for report labels), and
-sets up a per-revision cache (a git worktree at the SHA plus a `uv venv` with the
-repo installed). It reports which tiers that revision can actually run.
+sets up a per-revision cache via the generic `setup_repo` machinery (a git
+worktree at the SHA plus a `uv venv` with the repo installed). It reports which
+tiers that revision can actually run.
 
 ```python
     def build(self, ref: str, *, name: str | None = None) -> BuiltEnv:
-        from ..setup_commit import record_ref, resolve_sha, setup
+        from ..setup_repo import record_ref, resolve_sha, setup
 
-        sha = resolve_sha(ref)
-        record_ref(ref, sha, name, profile="transformers")
-        info = setup(ref)
+        src = transformers_src()
+        sha = resolve_sha(ref, src)
+        record_ref(ref, sha, name, profile="transformers", src=src)
+        info = setup(ref, src=src, profile="transformers", package="transformers",
+                     pinned_deps=PINNED_DEPS, skill_builder=_build_skill)
         tiers = ["bare", "clone"] + (["skill"] if info["skill_available"] else [])
         return BuiltEnv(
             binding=info["short"],
@@ -240,6 +244,31 @@ class TransformersProfile(Profile):
 A profile that declares no markers (`return []`) simply gets no marker columns in
 the report.
 
+## A second worked example: `diffusers`
+
+[`src/ae/profiles/diffusers.py`](./src/ae/profiles/diffusers.py) reuses the same
+contract and the same `setup_repo` machinery, and shows what differs between
+libraries:
+
+- **Repo discovery** is generic: `repo_src("diffusers")` resolves from
+  `AE_DIFFUSERS_SRC` or a sibling `../diffusers` checkout.
+- **The skill ships in-repo.** Instead of deriving a skill from an install
+  manifest (transformers), the `skill_builder` copies the binding's own
+  `.ai/skills/diffusers-cli/` bundle out of the worktree — and reports the skill
+  tier unavailable on revisions that predate it. This makes the before/after
+  axis structural: `v0.39.0` (no agentic CLI, no skills) vs the commit that
+  introduced `diffusers-cli run/schema/skills` (shipped in `v0.40.0`).
+- **Markers** track `diffusers-cli` adoption vs `from_pretrained(...)` Python,
+  plus `diffusers-cli schema` consultations and in-repo `.ai/skills/` reads.
+- **Tasks** split into schema introspection (deterministic, no weights
+downloaded,
+  exactly matchable) and generation (behaviour-only, tiny test pipelines so each
+  run stays cheap on one GPU). See
+  [`src/ae/data/diffusers.yaml`](./src/ae/data/diffusers.yaml).
+- **Jobs** clone the right repo automatically: a profile's optional `repo_git`
+  attribute drives the HF Jobs bootstrap (clone URL, `/work/<name>` dir, and the
+  `AE_<NAME>_SRC` export), so `batch` submissions are profile-aware.
+
 ## A minimal profile: `mock`
 
 [`src/ae/profiles/mock.py`](./src/ae/profiles/mock.py) is the smallest viable
@@ -276,6 +305,14 @@ Paired with the `mock` runner, a whole suite finishes in seconds.
 
 - Reuse `expand_spec(spec, resolve)` for `expand_bindings`; you only supply the
   per-ref mapping.
+- Reuse `setup_repo.setup(...)` for `build()`; you supply the repo root
+  (`paths.repo_src(name)`), the importable package name, extra pinned deps, and
+  a `skill_builder(venv_python, worktree, plugin_dir) -> bool` that places the
+  binding's skill under `<plugin_dir>/skills/<name>/` (or reports it
+  unavailable). Namespace your cache under `configs/<profile>/` so bindings from
+  different repos never share a directory.
+- Declare `repo_git` on the profile so `batch` job bootstraps clone the right
+  target repo.
 - Cache expensive loaders (`@lru_cache`) so `tasks()` and friends are cheap to call
   repeatedly across the run loop.
 - `prepare_workspace` should be safe to re-enter: remove any stale directory for the

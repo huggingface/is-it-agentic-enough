@@ -26,7 +26,7 @@ import json
 import subprocess
 
 from .log import log
-from .paths import state_root, transformers_src
+from .paths import repo_src, state_root
 from .upload import _have_hf_cli
 
 
@@ -39,21 +39,32 @@ def _bucket_uri(bucket_id: str, prefix: str | None = None) -> str:
     return f"{uri}/{prefix}" if prefix else uri
 
 
-def _git_meta(sha: str) -> tuple[str, str]:
-    """Return ``(subject, date)`` for a commit, or ``("?", "?")`` if unknown."""
-    try:
-        out = subprocess.check_output(
-            ["git", "-C", str(transformers_src()), "show", "-s",
-             "--date=short", "--format=%s|%ad", sha],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-        subject, date = out.split("|", 1)
-        return subject, date
-    except (Exception, SystemExit):
-        # transformers_src() raises SystemExit when the repo isn't located; the
-        # manifest should still build (just without git subjects/dates).
-        return "?", "?"
+def _git_meta(sha: str, profile: str | None = None) -> tuple[str, str]:
+    """Return ``(subject, date)`` for a commit, or ``("?", "?")`` if unknown.
+
+    Queries the producing profile's target repo when known (a diffusers sha
+    doesn't exist in the transformers checkout); falls back to trying every
+    located repo so legacy data without a profile marker still resolves."""
+    candidates: list[str] = [profile] if profile else []
+    candidates += [n for n in ("transformers", "diffusers") if n not in candidates]
+    for name in candidates:
+        if not name:
+            continue
+        try:
+            out = subprocess.check_output(
+                ["git", "-C", str(repo_src(name)), "show", "-s",
+                 "--date=short", "--format=%s|%ad", sha],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+        except (Exception, SystemExit):
+            # repo_src() raises SystemExit when a repo isn't located, and
+            # `git show` fails on a sha from another repo — try the next one;
+            # the manifest should still build (just without git subjects/dates).
+            continue
+        subject, _, date = out.partition("|")
+        return subject, date or "?"
+    return "?", "?"
 
 
 def build_manifest() -> dict:
@@ -86,12 +97,12 @@ def build_manifest() -> dict:
     out_commits: dict[str, dict] = {}
     for sha in sorted(commits):
         entry = commits[sha]
-        subject, date = _git_meta(entry["runs"][0].get("sha") or sha)
         namespaces = sorted({f"{r['harness']}/{r['model_id']}" for r in entry["runs"]})
         try:
             ref_info = json.loads((root / sha / "ref.json").read_text())
         except Exception:
             ref_info = {}
+        subject, date = _git_meta(entry["runs"][0].get("sha") or sha, ref_info.get("profile"))
         out_commits[sha] = {
             "subject": subject,
             "date": date,

@@ -1,0 +1,90 @@
+# Tasks for the diffusers before/after agent comparison.
+#
+# The comparison axis: v0.39.0 (no agentic CLI) vs the commit that introduced
+# `diffusers-cli run/schema/skills` + `.ai/skills/` (shipped in v0.40.0).
+#
+# Categories:
+#   atomic        — one `diffusers-cli` command in the "after" state covers this
+#                   task. Expected flip: "before" writes Python; "after" reaches
+#                   for the CLI.
+#   compositional — no single command fits; the agent has to compose steps.
+#
+# Generation outputs are open-ended, so generation tasks carry no `expected`
+# (behaviour-only: CLI-vs-Python adoption, tokens, time, errors). The
+# deterministic tasks instead introspect a pipeline's schema — one CLI call in
+# the "after" state, no weights downloaded, and an exactly matchable answer.
+# Generation tasks deliberately use the hf-internal-testing tiny pipelines so
+# each run stays cheap on a single GPU.
+
+tasks:
+  # --- schema introspection (deterministic; the CLI answers in one call,
+  #     downloading no weights). Repos are all ungated: the agent's task
+  #     environment runs token-free, so gated repos are off limits.
+  #     Answers come from the pipeline class's __call__ signature, so they
+  #     are stable across the revisions being compared. ---
+
+  - id: schema-sdxl-steps
+    category: atomic
+    expected: "50"
+    runs: 5
+    prompt: |
+      I want to call the stabilityai/stable-diffusion-xl-base-1.0 pipeline.
+      Before writing any code, find out what its __call__ signature accepts:
+      what is the default value of num_inference_steps? Report just the number.
+
+  - id: schema-sdxl-guidance
+    category: atomic
+    expected: "5.0"
+    runs: 5
+    prompt: |
+      I want to call the stabilityai/stable-diffusion-xl-base-1.0 pipeline.
+      What is the default value of its guidance_scale parameter? Report just
+      the number.
+
+  - id: schema-sd14-guidance
+    category: atomic
+    expected: "7.5"
+    runs: 5
+    prompt: |
+      I want to call the CompVis/stable-diffusion-v1-4 pipeline. What is the
+      default value of its guidance_scale parameter? Report just the number.
+
+  - id: schema-inpaint-mask
+    category: atomic
+    expected: mask_image
+    runs: 5
+    prompt: |
+      I want to inpaint with the stabilityai/stable-diffusion-2-inpainting
+      pipeline. What is the name of the parameter I pass the mask to? Report
+      just the parameter name.
+
+  # --- generation (behaviour-only; open-ended output, no exact match) ---
+
+  - id: generate-image
+    category: atomic
+    runs: 3
+    prompt: |
+      Using the pipeline at hf-internal-testing/tiny-stable-diffusion-torch,
+      generate an image from the prompt "a red bicycle on a beach at sunset"
+      with 4 inference steps, save it to ./bicycle.png, and report the path of
+      the saved image.
+
+  - id: generate-batch
+    category: atomic
+    runs: 3
+    prompt: |
+      Using the pipeline at hf-internal-testing/tiny-stable-diffusion-torch,
+      generate 2 images from the prompt "a small cottage in the mountains" with
+      4 inference steps, save them under ./cottages/, and report the paths of
+      the saved images.
+
+  # --- compositional (no single command fits; composition is required) ---
+
+  - id: compose-generate-classify
+    category: compositional
+    prompt: |
+      Generate an image from the prompt "a close-up photo of a cat" with 4
+      inference steps using the pipeline at
+      hf-internal-testing/tiny-stable-diffusion-torch, then classify the
+      generated image with google/vit-base-patch16-224 and report both the
+      saved image path and the top predicted label.

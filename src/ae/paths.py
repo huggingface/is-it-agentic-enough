@@ -2,10 +2,11 @@
 
 All runtime state (configs, workspaces, results) lives under ``state_root()``
 — by default the current working directory, overridable via the
-``AE_DATA_DIR`` env var. The transformers source repo is located via
-``transformers_src()``, defaulting to ``<state_root>/../transformers``
-(where the harness has historically sat next to the repo), overridable via
-``AE_TRANSFORMERS_SRC``.
+``AE_DATA_DIR`` env var. Each profile's target repo (the library under test)
+is located via :func:`repo_src`, defaulting to ``<state_root>/<name>`` as a
+sibling of the repo (where the harness has historically sat next to it),
+overridable via ``AE_<NAME>_SRC`` (e.g. ``AE_TRANSFORMERS_SRC``,
+``AE_DIFFUSERS_SRC``).
 """
 
 from __future__ import annotations
@@ -91,18 +92,25 @@ def traces_dir(commit: str | None = None, ns: str | None = None) -> Path:
     return d
 
 
-def transformers_src() -> Path:
-    override = os.environ.get("AE_TRANSFORMERS_SRC")
+def repo_src(name: str) -> Path:
+    """Locate the source repo of the library under test (``transformers``,
+    ``diffusers``, …). ``AE_<NAME>_SRC`` overrides; the default is a sibling of
+    the state root, matching the harness's historical layout."""
+    env_var = f"AE_{name.upper()}_SRC"
+    override = os.environ.get(env_var)
     if override:
         return Path(override).resolve()
-    # Historical default: sibling directory.
-    candidate = (state_root().parent / "transformers").resolve()
+    candidate = (state_root().parent / name).resolve()
     if (candidate / ".git").exists():
         return candidate
     raise SystemExit(
-        "Could not locate the transformers source repo. Set AE_TRANSFORMERS_SRC "
+        f"Could not locate the {name} source repo. Set {env_var} "
         f"to the repo path (tried {candidate})."
     )
+
+
+def transformers_src() -> Path:
+    return repo_src("transformers")
 
 
 def package_data_path(*parts: str) -> Path:

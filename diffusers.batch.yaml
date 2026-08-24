@@ -1,0 +1,43 @@
+# Is the agentic CLI helping diffusers?
+#
+# Comparison axis: the commit that introduced `diffusers-cli run/schema/skills`
+# + `.ai/skills/` (PR #13966, shipped in v0.40.0).
+#   v0.39.0        — before: no agentic CLI, no skills
+#   6afdfd9f4      — the agentic-CLI commit itself
+#   v0.40.0        — after: first release shipping it
+#
+# The skill tier is only available at the two newer bindings (the profile
+# drops it automatically where .ai/skills/diffusers-cli doesn't exist).
+#
+# Schema tasks need no GPU and finish in seconds; generation tasks use the
+# hf-internal-testing tiny pipelines — one GPU flavor for the whole sweep
+# keeps the comparison on identical hardware.
+
+profile: diffusers
+
+tasks: [
+  schema-sdxl-steps,
+  schema-sdxl-guidance,
+  schema-sd14-guidance,
+  schema-inpaint-mask,
+  generate-image,
+  generate-batch,
+  compose-generate-classify
+]
+
+flavor: t4-small
+bucket: lysandre/diffusers-agentic-use
+
+models:
+  - Qwen/Qwen3-4B-Instruct-2507
+#  - Qwen/Qwen3-14B
+#  - Qwen/Qwen3.6-35B-A3B
+#  - google/gemma-4-31B-it
+#  - moonshotai/Kimi-K2.6
+#  - zai-org/GLM-5.1
+#  - MiniMaxAI/MiniMax-M2.7
+
+revisions:
+  - v0.39.0
+  - {ref: 6afdfd9f4, name: "w/ agentic CLI"}
+  - v0.40.0

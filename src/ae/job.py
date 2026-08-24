@@ -1,8 +1,9 @@
 """Submit one ``agent-eval suite`` as a Hugging Face Job — the unit ``batch`` launches.
 
 For each (model, revision) cell, build the equivalent ``agent-eval suite`` command,
-wrap it in a self-contained bootstrap (uv + the ``pi`` CLI + clones of
-``transformers`` and this repo), and submit it via the ``huggingface_hub`` API:
+wrap it in a self-contained bootstrap (uv + the ``pi`` CLI + a clone of the
+profile's target repo + a clone of this repo), and submit it via the
+``huggingface_hub`` API:
 
 - the bucket is **volume-mounted read+write** into the job at ``/bucket``, so
   results land in it directly — no upload step and no extra auth;
@@ -31,7 +32,22 @@ DEFAULT_TIMEOUT = "4h"
 DEFAULT_BUCKET = "lysandre/transformers-agentic-use"
 
 AG_GIT = "https://github.com/huggingface/is-transformers-agentic-enough"
-TRANSFORMERS_GIT = "https://github.com/huggingface/transformers"
+# Fallback target repo when the profile doesn't declare `repo_git` (the
+# historical behaviour — the harness predates multi-profile support).
+DEFAULT_TARGET_GIT = "https://github.com/huggingface/transformers"
+
+
+def _target_git(profile_name: str) -> str:
+    """The git URL of the repo under test for this profile (``repo_git``)."""
+    from .profile import get_profile
+
+    return getattr(get_profile(profile_name), "repo_git", None) or DEFAULT_TARGET_GIT
+
+
+def _repo_name(git_url: str) -> str:
+    """``…/huggingface/transformers`` → ``transformers`` (clone dir name and
+    the ``AE_<NAME>_SRC`` env var the profile's paths resolve from)."""
+    return git_url.rstrip("/").rsplit("/", 1)[-1]
 
 # The bootstrap is submitted as ONE argv token after a single `-c`. The Jobs
 # backend does not exec the command array verbatim: a combined `-lc` flag plus
@@ -57,12 +73,12 @@ _BOOTSTRAP_STEPS = [
     "curl -LsSf https://astral.sh/uv/install.sh | sh",
     'export PATH="$HOME/.local/bin:$PATH"',
     "npm i -g @mariozechner/pi-coding-agent",
-    "git clone --filter=blob:none __TRANSFORMERS_GIT__ /work/transformers",
+    "git clone --filter=blob:none __TARGET_GIT__ __TARGET_DIR__",
     "git clone __AG_GIT__ /work/ag",
     "cd /work/ag",
     "uv venv --python 3.13 .env",
     "uv pip install --python .env/bin/python -e .",
-    "export AE_TRANSFORMERS_SRC=/work/transformers",
+    "export __TARGET_ENV__=__TARGET_DIR__",
     "export AE_DATA_DIR=/work/state",
     # Persist each run to the mounted bucket the moment it finishes (the store
     # mirrors its cell file to AE_MIRROR_DIR after every upsert). So a crash or
@@ -81,21 +97,21 @@ _BOOTSTRAP_STEPS = [
 _BOOTSTRAP = " ; ".join(_BOOTSTRAP_STEPS)
 
 
-def _validate_remote_ref(ref: str) -> None:
+def _validate_remote_ref(ref: str, target_git: str) -> None:
     """Fail at submit time (≈1s, free) if ``ref`` won't resolve in the job's
-    fresh clone of ``transformers`` — instead of minutes into a paid job.
+    fresh clone of the target repo — instead of minutes into a paid job.
 
     Validates against the *remote* (exactly what the job clones), so it works
     for branches your local checkout hasn't fetched yet. Raw SHAs and
     ``HEAD``-style expressions can't be checked via ``ls-remote`` and are
     trusted (the job's full clone has all reachable history)."""
-    from .setup_commit import _looks_like_sha, suggest_refs
+    from .setup_repo import _looks_like_sha, suggest_refs
 
     if _looks_like_sha(ref) or ref == "HEAD" or any(t in ref for t in ("~", "^", "@{")):
         return
     found = (
         subprocess.run(
-            ["git", "ls-remote", "--exit-code", TRANSFORMERS_GIT,
+            ["git", "ls-remote", "--exit-code", target_git,
              f"refs/heads/{ref}", f"refs/tags/{ref}"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -107,7 +123,7 @@ def _validate_remote_ref(ref: str) -> None:
     names: list[str] = []
     for flag in ("--heads", "--tags"):
         proc = subprocess.run(
-            ["git", "ls-remote", flag, "--refs", TRANSFORMERS_GIT],
+            ["git", "ls-remote", flag, "--refs", target_git],
             capture_output=True,
             text=True,
         )
@@ -119,7 +135,7 @@ def _validate_remote_ref(ref: str) -> None:
     sugg = suggest_refs(ref, names)
     hint = f" Did you mean: {', '.join(sugg)}?" if sugg else ""
     raise SystemExit(
-        f"`{ref}` is neither a branch nor a tag on {TRANSFORMERS_GIT} "
+        f"`{ref}` is neither a branch nor a tag on {target_git} "
         f"(checked with ls-remote — this is what the job would clone).{hint}"
     )
 
@@ -145,9 +161,13 @@ def build_suite_cmd(args) -> list[str]:
 
 def bootstrap_script(args) -> str:
     """The one-line bootstrap that builds the env and runs the suite inside the job."""
+    target_git = _target_git(args.profile)
+    name = _repo_name(target_git)
     return (
         _BOOTSTRAP
-        .replace("__TRANSFORMERS_GIT__", TRANSFORMERS_GIT)
+        .replace("__TARGET_GIT__", target_git)
+        .replace("__TARGET_DIR__", f"/work/{name}")
+        .replace("__TARGET_ENV__", f"AE_{name.upper()}_SRC")
         .replace("__AG_GIT__", AG_GIT)
         .replace("__AG_CMD__", shlex.join(build_suite_cmd(args)))
     )
@@ -161,7 +181,7 @@ def _check_job_args(args) -> None:
         )
     if not args.model:
         raise SystemExit("a job requires --model (the HF model id the pi runner should serve).")
-    _validate_remote_ref(args.ref)
+    _validate_remote_ref(args.ref, _target_git(args.profile))
 
 
 def submit_job_api(args):
