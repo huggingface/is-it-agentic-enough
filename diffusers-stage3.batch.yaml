@@ -1,0 +1,18 @@
+# Stage 3 — the generation path. One model, one revision (v0.40.0, all three
+# tiers), the three GPU tasks (tiny test pipelines + one ViT for the
+# compositional task), 2 runs each. Validates weight downloads, GPU inference
+# inside jobs, and CLI-vs-Python adoption on open-ended tasks.
+
+profile: diffusers
+
+tasks: [generate-image, generate-batch, compose-generate-classify]
+runs: 2
+
+flavor: t4-small
+bucket: lysandre/diffusers-agentic-use
+
+models:
+  - Qwen/Qwen3-4B-Instruct-2507
+
+revisions:
+  - v0.40.0

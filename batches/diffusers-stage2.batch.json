@@ -1,0 +1,26 @@
+{
+  "profile": "diffusers",
+  "jobs": [
+    {
+      "label": "pi:Qwen/Qwen3-4B-Instruct-2507 @ v0.39.0",
+      "ref": "v0.39.0",
+      "name": null,
+      "model": "Qwen/Qwen3-4B-Instruct-2507",
+      "job_id": "6a8bf9897c5c7dd379236ce8"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-4B-Instruct-2507 @ w/ agentic CLI",
+      "ref": "6afdfd9f4",
+      "name": "w/ agentic CLI",
+      "model": "Qwen/Qwen3-4B-Instruct-2507",
+      "job_id": "6a8bf98a7c5c7dd379236cea"
+    },
+    {
+      "label": "pi:Qwen/Qwen3-4B-Instruct-2507 @ v0.40.0",
+      "ref": "v0.40.0",
+      "name": null,
+      "model": "Qwen/Qwen3-4B-Instruct-2507",
+      "job_id": "6a8bf98f7c5c7dd379236cee"
+    }
+  ]
+}

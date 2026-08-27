@@ -1,0 +1,29 @@
+# Stage 4 — the full model ladder. All seven tasks, all three revisions,
+# 2 runs per cell, across small → large open models. This is the sweep that
+# answers the study question: does the agentic CLI help, and for which models?
+#
+# Watch for: large models adopting `diffusers-cli run/schema` on the skill
+# tier; small models repeating the transformers-style skill failure (treating
+# the CLI as a harness tool / grepping the skill docs); the clone-tier token
+# bump when agents read the newly-shipped CLI source.
+
+profile: diffusers
+
+runs: 2
+
+flavor: t4-small
+bucket: lysandre/diffusers-agentic-use
+
+models:
+  - Qwen/Qwen3-4B-Instruct-2507
+  - Qwen/Qwen3-14B
+  - Qwen/Qwen3.6-35B-A3B
+  - google/gemma-4-31B-it
+  - moonshotai/Kimi-K2.6
+  - zai-org/GLM-5.1
+  - MiniMaxAI/MiniMax-M2.7
+
+revisions:
+  - v0.39.0
+  - {ref: 6afdfd9f4, name: "w/ agentic CLI"}
+  - v0.40.0

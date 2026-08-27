@@ -1,0 +1,23 @@
+# Stage 2 — the comparison axis. One model, all three revisions, the four
+# schema tasks (2 runs each). v0.39.0 runs bare+clone only (the profile drops
+# the skill tier there — .ai/skills/diffusers-cli doesn't exist yet).
+# force_rerun: the smoke run's schema cells used the old prompts; recomputing
+# them keeps this sweep consistent.
+
+profile: diffusers
+force_rerun: true
+
+tasks: [schema-sdxl-steps, schema-sdxl-guidance, schema-sd14-guidance, schema-inpaint-mask]
+runs: 2
+
+flavor: t4-small
+
+bucket: lysandre/diffusers-agentic-use
+
+models:
+  - Qwen/Qwen3-4B-Instruct-2507
+
+revisions:
+  - v0.39.0
+  - {ref: 6afdfd9f4, name: "w/ agentic CLI"}
+  - v0.40.0

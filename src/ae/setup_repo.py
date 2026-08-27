@@ -17,6 +17,7 @@ places the skill for the binding under ``<cfg_dir>/plugin/skills/<name>/``
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -97,6 +98,17 @@ def record_ref(ref: str, sha: str, name: str | None = None, profile: str = "tran
     elif existing.get("name"):
         out["name"] = existing["name"]
     path.write_text(json.dumps(out) + "\n")
+    # Jobs mirror each artefact to the bucket the moment it's written, so a
+    # crash/eviction keeps the binding's label too — not just the run shards.
+    # Without this, report labels (name/ref/kind) never leave the container.
+    mdir = os.environ.get("AE_MIRROR_DIR")
+    if mdir:
+        try:
+            dst = Path(mdir) / "results" / sha[:10] / "ref.json"
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(path, dst)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def suggest_refs(ref: str, names: list[str], n: int = 3) -> list[str]:

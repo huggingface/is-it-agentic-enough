@@ -1,0 +1,12 @@
+{
+  "profile": "diffusers",
+  "jobs": [
+    {
+      "label": "pi:Qwen/Qwen3-4B-Instruct-2507 @ v0.40.0",
+      "ref": "v0.40.0",
+      "name": null,
+      "model": "Qwen/Qwen3-4B-Instruct-2507",
+      "job_id": "6a8bfcac7c5c7dd379236d34"
+    }
+  ]
+}

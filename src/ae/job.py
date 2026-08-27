@@ -64,7 +64,7 @@ _BOOTSTRAP_STEPS = [
     # copy would re-push a stale seeded copy of a peer's in-progress shard and
     # clobber it. The per-run mirror (AE_MIRROR_DIR) is the primary path; this is
     # belt-and-suspenders for skipped mirrors / SIGTERM mid-run.
-    'persist() { [ -e /work/.seed_done ] || return 0; (cd /work/state && find results traces -type f -name "*.jsonl" -newer /work/.seed_done -exec cp -a --parents {} /bucket/ \\;) 2>/dev/null || true; }',
+    'persist() { [ -e /work/.seed_done ] || return 0; (cd /work/state && find results traces -type f \\( -name "*.jsonl" -o -name "ref.json" \\) -newer /work/.seed_done -exec cp -a --parents {} /bucket/ \\;) 2>/dev/null || true; }',
     # If the container is told to stop (timeout / eviction / OOM-adjacent),
     # exit 143 is otherwise silent — leave a breadcrumb in the job log first.
     'trap \'echo "::job:: SIGTERM received — timeout, eviction, or out-of-resources. Last status=${status}." >&2; df -h /work /bucket 2>/dev/null | tail -3 >&2; persist; exit 143\' TERM',
